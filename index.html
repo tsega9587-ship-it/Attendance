@@ -345,6 +345,12 @@
       <p class="muted" style="margin-top:10px">Paste it into NFC Tools as a URL record, then write it to this person's card.</p>
     </div>
 
+    <div class="card hidden" id="unknownCard" style="border-color:var(--bar-warn);background:var(--warn-soft)">
+      <p class="name">Unknown card waiting to be linked</p>
+      <p class="muted" id="unknownInfo" style="color:var(--ink-2);margin:4px 0 10px"></p>
+      <button class="btn sm" id="unknownDismiss" type="button">Dismiss</button>
+    </div>
+
     <form class="card hidden" id="personForm" autocomplete="off">
       <div class="sec"><h2 id="personFormTitle">Add an employee</h2></div>
       <p class="form-label">Employee</p>
@@ -616,8 +622,18 @@ function handleCardLink() {
   const person = db.people.find(p => p.cardCode === m[1]);
   if (view !== 'scan') setView('scan');
   if (person) record(person, 'card');
-  else show('err', 'Unknown card', 'This card is not registered on this device');
+  else {
+    rememberUnknown(m[1]);
+    const n = db.people.length;
+    show('err', 'Unknown card', `Not linked to anyone. This browser has ${n} ${n === 1 ? 'employee' : 'employees'}. An admin can link it under Cards.`);
+  }
 }
+
+/* The last unregistered card tapped, so an admin can link it without rewriting the card. */
+const UNKNOWN_KEY = 'nfc-attendance-unknown';
+function rememberUnknown(code) { try { localStorage.setItem(UNKNOWN_KEY, JSON.stringify({ code, ts: Date.now() })); } catch {} }
+function lastUnknown() { try { return JSON.parse(localStorage.getItem(UNKNOWN_KEY)); } catch { return null; } }
+function clearUnknown() { try { localStorage.removeItem(UNKNOWN_KEY); } catch {} }
 
 async function copyLink(p) {
   const link = cardLink(p);
@@ -631,7 +647,7 @@ async function startNfc() {
   try {
     const r = new NDEFReader();
     const ctrl = new AbortController();
-    r.onreading = e => onCard(e.serialNumber);
+    r.onreading = e => onCard(e.serialNumber, codeFromCard(e.message));
     r.onreadingerror = () => show('err', 'Card not readable', 'Try again, or use a different card');
     await r.scan({ signal: ctrl.signal });
     reader = r; abort = ctrl; notice(''); paintScanner();
@@ -650,21 +666,48 @@ function paintScanner() {
   $('scanBtn').classList.toggle('hidden', linkMode);
   $('scanRing').classList.toggle('on', on || linkMode);
   $('scanRingText').textContent = on || linkMode ? 'Ready to tap' : 'Scanner off';
-  if (linkMode) $('scanHelp').textContent = 'Hold the card near the top of the unlocked iPhone, then tap the notification that appears.';
+  if (linkMode) {
+    const ua = navigator.userAgent;
+    $('scanHelp').textContent = /iPhone|iPad|iPod/.test(ua) ? 'Hold the card near the top of the unlocked iPhone, then tap the notification that appears.'
+      : /Android/.test(ua) ? 'Hold the card against the back of the unlocked phone, then open the link that appears.'
+      : 'Tap cards on a phone with NFC. This device can be used for the admin screens.';
+    $('scanRing').classList.toggle('on', /iPhone|iPad|iPod|Android/.test(ua));
+    $('scanRingText').textContent = /iPhone|iPad|iPod|Android/.test(ua) ? 'Ready to tap' : 'Use a phone to scan';
+  }
   $('scanBtn').textContent = on ? 'Stop scanning' : 'Start scanning';
 }
 
-function onCard(serial) {
+/* Reads the private link off a card, so one card works on every kind of phone. */
+function codeFromCard(message) {
+  try {
+    for (const rec of (message && message.records) || []) {
+      if (!rec.data) continue;
+      const m = new TextDecoder().decode(rec.data).match(/#c=([0-9a-f]+)\s*$/);
+      if (m) return m[1];
+    }
+  } catch {}
+  return '';
+}
+
+function onCard(serial, code = '') {
   serial = (serial || '').toLowerCase();
-  if (!serial) { show('err', 'Card has no readable ID', 'Use a different card'); return; }
   if (enrollWaiting) {
+    if (!serial) { show('err', 'Card has no readable ID', 'Use a different card'); return; }
     const owner = db.people.find(p => p.cardSerial === serial && p.id !== editingId);
     if (owner) { show('err', 'Card already in use', owner.name); return; }
     enrollWaiting = false; draftSerial = serial; paintDraft(); show('info', 'Card linked', 'Press Save to finish');
     return;
   }
-  const person = db.people.find(p => p.cardSerial === serial);
+  sync();
+  const person = (code && db.people.find(p => p.cardCode === code)) || (serial && db.people.find(p => p.cardSerial === serial));
   if (person) { record(person, 'card'); return; }
+  if (code) {
+    rememberUnknown(code);
+    const n = db.people.length;
+    show('err', 'Unknown card', `Not linked to anyone. This browser has ${n} ${n === 1 ? 'employee' : 'employees'}. An admin can link it under Cards.`);
+    return;
+  }
+  if (!serial) { show('err', 'Card has no readable ID', 'Use a different card'); return; }
   if (!unlocked) { show('err', 'Unknown card', 'Ask an admin to register it'); return; }
   show('err', 'Unknown card', 'Opening registration');
   draftSerial = serial; formOpen = true; setView('people'); paintDraft(); $('pName').focus();
@@ -688,7 +731,7 @@ function show(kind, big, sub) {
   $('ovIcon').setAttribute('href', `#i-${OV_ICONS[kind]}`);
   beep(kind);
   if (navigator.vibrate) navigator.vibrate(kind === 'err' ? [120, 80, 120] : 120);
-  clearTimeout(ovTimer); ovTimer = setTimeout(() => { o.className = ''; }, canReadNfc() ? 1800 : 3000);
+  clearTimeout(ovTimer); ovTimer = setTimeout(() => { o.className = ''; }, kind === 'err' ? 6000 : canReadNfc() ? 1800 : 3000);
 }
 
 /* ---------- Rendering ---------- */
@@ -895,18 +938,22 @@ function renderPeople() {
   const list = db.people.filter(p => !q || `${p.name} ${p.staffId} ${p.dept}`.toLowerCase().includes(q))
     .sort((a, b) => a.name.localeCompare(b.name));
   const created = db.people.find(p => p.id === linkFor);
-  $('newLink').classList.toggle('hidden', !created || canReadNfc());
+  $('newLink').classList.toggle('hidden', !created);
   if (created) { $('nlName').textContent = created.name; $('nlUrl').value = cardLink(created); }
   const used = usedCards();
+  let waiting = lastUnknown();
+  if (waiting && db.people.some(p => p.cardCode === waiting.code)) { clearUnknown(); waiting = null; }
+  $('unknownCard').classList.toggle('hidden', !waiting);
+  if (waiting) $('unknownInfo').textContent = `Tapped at ${timeStr(waiting.ts)}. Press Link tapped card on the employee who owns it.`;
   $('peopleList').innerHTML = list.length ? list.map(p => {
     const h = schedule(p);
-    const state = canReadNfc() ? (p.cardSerial ? '' : '<span class="tag absent">No card</span>')
-      : used.has(p.id) ? '<span class="tag">Card active</span>' : '<span class="tag manual">Not used yet</span>';
-    const copy = canReadNfc() ? '' : `<button class="btn sm" data-copy="${esc(p.id)}">${icon('copy')}Copy card link</button>`;
+    const linkBtn = waiting ? `<button class="btn sm primary wide" style="margin-top:8px" data-link="${esc(p.id)}">Link tapped card</button>` : '';
+    const state = used.has(p.id) ? '<span class="tag">Card active</span>' : '<span class="tag manual">Not used yet</span>';
+    const copy = `<button class="btn sm" data-copy="${esc(p.id)}">${icon('copy')}Copy card link</button>`;
     return `<article class="emp"><div class="emp-h">${avatar(p.name)}<div class="grow"><div class="name">${esc(p.name)}</div>
       <div class="muted">${esc([p.dept, p.staffId].filter(Boolean).join(' · ')) || 'Employee'}</div></div>${state}</div>
       <div class="emp-hours"><span class="chip">Morning ${h.start}-${h.lunchOut}</span><span class="chip">Afternoon ${h.lunchIn}-${h.end}</span></div>
-      <div class="emp-a">${copy}<button class="icon-btn" data-edit="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">${icon('edit')}</button>
+      ${linkBtn}<div class="emp-a">${copy}<button class="icon-btn" data-edit="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">${icon('edit')}</button>
       <button class="icon-btn danger" data-del="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">${icon('trash')}</button></div></article>`;
   }).join('') : empty(db.people.length ? 'Nobody matches your search.' : 'No employees yet. Add your first employee above.');
   paintDraft();
@@ -922,9 +969,9 @@ function paintDraft() {
   $('addBtn').classList.toggle('hidden', open);
   if (!editingId && !$('pStart').value) fillHours(schedule(null));
   if (!editingId) $('personFormTitle').textContent = 'Add an employee';
-  $('pSave').textContent = linkMode && !editingId ? 'Create link' : 'Save';
+  $('pSave').textContent = editingId ? 'Save' : 'Create link';
   $('enrollBtn').classList.toggle('hidden', linkMode);
-  $('newCodeBtn').classList.toggle('hidden', !(linkMode && editingId));
+  $('newCodeBtn').classList.toggle('hidden', !editingId);
   if (linkMode) {
     $('pCardState').textContent = editingId ? 'Use Copy card link in the list below to write this person\'s card.'
       : 'A private card link is created when you save.';
@@ -1024,6 +1071,7 @@ $('nlCopy').addEventListener('click', () => {
   if (p) copyLink(p);
 });
 $('lockBtn').addEventListener('click', lock);
+$('unknownDismiss').addEventListener('click', () => { clearUnknown(); renderPeople(); });
 $('dashDate').addEventListener('change', renderDash);
 $('dashStats').addEventListener('click', e => {
   const b = e.target.closest('[data-filter]'); if (!b) return;
@@ -1073,6 +1121,15 @@ $('changePinForm').addEventListener('submit', async e => {
 });
 $('peopleList').addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]'), cp = e.target.closest('[data-copy]');
+  const ln = e.target.closest('[data-link]');
+  if (ln) {
+    const p = db.people.find(x => x.id === ln.dataset.link), waiting = lastUnknown();
+    if (!p || !waiting) return;
+    if (!confirm(`Link the tapped card to ${p.name}? Any older card for this person will stop working.`)) return;
+    p.cardCode = waiting.code;
+    if (save()) { clearUnknown(); show('info', 'Card linked', `Tap it again to check ${p.name} in`); renderPeople(); }
+    return;
+  }
   if (cp) {
     const p = db.people.find(x => x.id === cp.dataset.copy);
     if (p && p.cardCode) copyLink(p);
