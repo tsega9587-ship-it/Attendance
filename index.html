@@ -75,10 +75,28 @@
     border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
   nav button { flex: 1; border: 0; border-radius: 0; background: none; min-height: 60px; color: var(--muted); padding: 4px; }
   nav button[aria-current="page"] { color: var(--brand); box-shadow: inset 0 3px 0 var(--brand); }
+  nav button { font-size: 13px; }
+
+  #headRight { display: flex; align-items: center; gap: 10px; }
+  #lockBtn { min-height: 32px; padding: 2px 10px; font-size: 13px; }
+  .stats.four { grid-template-columns: repeat(2, 1fr); }
+  button.stat { width: 100%; font-weight: 400; min-height: 72px; }
+  button.stat[aria-pressed="true"] { border-color: var(--brand); box-shadow: inset 0 0 0 2px var(--brand); }
+  .error { color: var(--bad); font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+  #newLink { border-color: var(--ok); background: var(--brand-soft); }
+  #newLink input { font-size: 14px; margin-bottom: 10px; }
+
+  .bars { display: flex; align-items: stretch; gap: 8px; }
+  .bar { flex: 1; min-width: 0; min-height: 150px; padding: 0; border: 0; border-radius: 0; background: none;
+    display: flex; flex-direction: column; justify-content: flex-end; align-items: center; font-weight: 400; }
+  .bar .n { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; min-height: 20px; }
+  .bar .fill { width: 60%; max-width: 28px; background: var(--brand); border-radius: 4px 4px 0 0; }
+  .bar .day { width: 100%; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 4px; margin-top: 0; }
+  .bar[aria-pressed="true"] .day { color: var(--ink); font-weight: 700; }
 </style>
 </head>
 <body>
-<header><h1 id="orgName">Attendance</h1><span id="clock"></span></header>
+<header><h1 id="orgName">Attendance</h1><div id="headRight"><span id="clock"></span><button id="lockBtn" class="hidden">Lock</button></div></header>
 
 <main>
   <div id="notice" class="hidden" role="alert"></div>
@@ -93,6 +111,35 @@
     <div class="card" id="recent"></div>
   </section>
 
+  <section id="v-admin" class="hidden">
+    <form class="card" id="pinForm" autocomplete="off">
+      <h2 id="pinTitle">Admin login</h2>
+      <p class="muted" id="pinHelp"></p>
+      <label>PIN <input id="pin1" type="password" inputmode="numeric" maxlength="8" autocomplete="off" required></label>
+      <label id="pin2Wrap">Confirm PIN <input id="pin2" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>
+      <p class="error hidden" id="pinErr" role="alert"></p>
+      <button class="primary wide" id="pinBtn">Log in</button>
+    </form>
+    <p class="muted" id="pinForgot">Forgot your PIN? Clear this site's data in Safari settings, create a new PIN, then restore your latest backup under Reports.</p>
+  </section>
+
+  <section id="v-dash" class="hidden">
+    <label>Date <input type="date" id="dashDate"></label>
+    <div class="stats four" id="dashStats"></div>
+    <p class="muted" style="margin-top:0">Tap a box to filter the staff list. Figures come from the records on this device.</p>
+    <h2 id="dashListTitle">Everyone</h2>
+    <div class="card" id="dashAttention"></div>
+    <h2>Present, last 7 days</h2>
+    <div class="card">
+      <div class="bars" id="dashChart"></div>
+      <p class="muted" id="chartCap" style="margin:10px 0 0"></p>
+    </div>
+    <h2>Most late, last 30 days</h2>
+    <div class="card" id="dashLate"></div>
+    <h2>Cards not used yet</h2>
+    <div class="card" id="dashCards"></div>
+  </section>
+
   <section id="v-day" class="hidden">
     <label>Date <input type="date" id="dayPick"></label>
     <div class="stats" id="stats"></div>
@@ -100,6 +147,12 @@
   </section>
 
   <section id="v-people" class="hidden">
+    <div class="card hidden" id="newLink">
+      <p style="margin:0 0 8px"><b>Link created for <span id="nlName"></span></b></p>
+      <input id="nlUrl" readonly aria-label="Card link">
+      <button class="primary wide" id="nlCopy">Copy link</button>
+      <p class="muted" style="margin:10px 0 0">Paste it into NFC Tools as a URL record, then write it to this person's card.</p>
+    </div>
     <h2 id="personFormTitle">Add a person</h2>
     <form class="card" id="personForm" autocomplete="off">
       <label>Full name <input id="pName" required maxlength="80"></label>
@@ -110,7 +163,7 @@
       <p class="muted" id="pCardState" style="margin-top:0">No card linked yet.</p>
       <div class="row" style="margin-bottom:10px">
         <button type="button" id="enrollBtn">Tap card to link</button>
-        <button type="submit" class="primary">Save</button>
+        <button type="submit" class="primary" id="pSave">Save</button>
       </div>
       <button type="button" id="newCodeBtn" class="wide danger hidden" style="margin-bottom:10px">Replace lost card</button>
       <button type="button" id="cancelEdit" class="wide hidden">Cancel</button>
@@ -160,9 +213,11 @@
 
 <nav>
   <button data-view="scan" aria-current="page">Scan</button>
-  <button data-view="day">Attendance</button>
-  <button data-view="people">People</button>
-  <button data-view="more">Reports</button>
+  <button data-view="admin" data-locked>Admin</button>
+  <button data-view="dash" data-unlocked class="hidden">Dashboard</button>
+  <button data-view="day" data-unlocked class="hidden">Attendance</button>
+  <button data-view="people" data-unlocked class="hidden">Cards</button>
+  <button data-view="more" data-unlocked class="hidden">Reports</button>
 </nav>
 
 <script>
@@ -321,6 +376,7 @@ function onCard(serial) {
   }
   const person = db.people.find(p => p.cardSerial === serial);
   if (person) { record(person, 'card'); return; }
+  if (!unlocked) { show('err', 'Unknown card', 'Ask an admin to register it'); return; }
   show('err', 'Unknown card', 'Opening registration');
   draftSerial = serial; setView('people'); paintDraft(); $('pName').focus();
 }
@@ -345,19 +401,117 @@ function show(kind, big, sub) {
 }
 
 /* ---------- Rendering ---------- */
-let view = 'scan', editingId = null;
+let view = 'scan', editingId = null, linkFor = null;
+const PROTECTED = ['dash', 'day', 'people', 'more'];
 function setView(v) {
+  if (PROTECTED.includes(v) && !unlocked) v = 'admin';
   view = v;
-  for (const s of ['scan', 'day', 'people', 'more']) $('v-' + s).classList.toggle('hidden', s !== v);
+  for (const s of ['scan', 'admin', ...PROTECTED]) $('v-' + s).classList.toggle('hidden', s !== v);
   document.querySelectorAll('nav button').forEach(b => {
     if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    if ('unlocked' in b.dataset) b.classList.toggle('hidden', !unlocked);
+    if ('locked' in b.dataset) b.classList.toggle('hidden', unlocked);
   });
+  $('lockBtn').classList.toggle('hidden', !unlocked);
   render(); scrollTo(0, 0);
 }
+
+/* ---------- Admin PIN ----------
+   Kept apart from the records so backups never contain it. It stops casual access on a
+   shared phone; it is not strong security, because the data sits on the device. */
+const PIN_KEY = 'nfc-attendance-pin', IDLE_LOCK_MS = 5 * 60 * 1000;
+let unlocked = false, lastActive = 0, pinFails = 0, pinBlockedUntil = 0;
+
+function storedPin() { try { return JSON.parse(localStorage.getItem(PIN_KEY)); } catch { return null; } }
+async function hashPin(pin, salt) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${pin}`));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function pinError(msg) { $('pinErr').textContent = msg; $('pinErr').classList.remove('hidden'); }
+function unlock() { unlocked = true; lastActive = Date.now(); pinFails = 0; setView('dash'); }
+function lock() { unlocked = false; linkFor = null; resetForm(); setView('scan'); }
+
+function renderPin() {
+  const creating = !storedPin();
+  $('pinTitle').textContent = creating ? 'Create an admin PIN' : 'Admin login';
+  $('pinHelp').textContent = creating ? 'Choose 4 to 8 digits. You will need this PIN to open the admin screens on this device.'
+    : 'Enter your PIN to open the admin screens.';
+  $('pinBtn').textContent = creating ? 'Create PIN' : 'Log in';
+  $('pin2Wrap').classList.toggle('hidden', !creating);
+  $('pinForgot').classList.toggle('hidden', creating);
+}
+
+/* ---------- Dashboard ---------- */
+function personList(items, empty) {
+  return items.length ? items.join('') : `<p class="muted" style="margin:0">${esc(empty)}</p>`;
+}
+let dashFilter = 'all';
+const DASH_GROUPS = [
+  ['ontime', 'On time', r => r.logs.length && !r.late],
+  ['late', 'Late', r => r.late],
+  ['absent', 'Absent', r => !r.logs.length],
+  ['inside', 'Still in', r => r.inside],
+];
+function renderDash() {
+  if (!$('dashDate').value) $('dashDate').value = dateKey();
+  const rows = dayRows($('dashDate').value);
+  $('dashStats').innerHTML = DASH_GROUPS.map(([id, label, test]) => `<button class="stat" type="button" data-filter="${id}"
+    aria-pressed="${dashFilter === id}"><b>${rows.filter(test).length}</b><span>${label}</span></button>`).join('');
+  const group = DASH_GROUPS.find(g => g[0] === dashFilter);
+  const shown = group ? rows.filter(group[2]) : rows;
+  $('dashListTitle').textContent = `${group ? group[1] : 'Everyone'} (${shown.length})`;
+  $('dashAttention').innerHTML = personList(shown.map(r => {
+    const tag = !r.logs.length ? '<span class="tag absent">Absent</span>'
+      : r.late ? '<span class="tag late">Late</span>' : '<span class="tag">On time</span>';
+    const times = r.logs.length ? `<div class="muted times">In ${timeStr(r.firstIn)} · Out ${r.lastOut ? timeStr(r.lastOut) : '-'}${r.minutes ? ' · ' + fmtSpan(r.minutes) : ''}</div>` : '';
+    return `<div class="item"><div class="grow"><div class="name">${esc(r.name)}</div>
+      ${r.dept ? `<div class="muted">${esc(r.dept)}</div>` : ''}${times}</div>${tag}</div>`;
+  }), db.people.length ? 'Nobody in this group.' : 'Add people under Cards to see them here.');
+
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const r = dayRows(dateKey(d)).filter(x => x.logs.length);
+    days.push({ label: d.toLocaleDateString(undefined, { weekday: 'short' }),
+      full: d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }),
+      present: r.length, late: r.filter(x => x.late).length });
+  }
+  const top = Math.max(1, ...days.map(d => d.present));
+  const caption = d => `${d.full}: ${d.present} present, ${d.late} late`;
+  $('dashChart').innerHTML = days.map((d, i) => `<button class="bar" type="button" data-bar="${i}" title="${esc(caption(d))}"
+    aria-label="${esc(caption(d))}" aria-pressed="${i === 6}"><span class="n">${i === 6 ? d.present : ''}</span>
+    <span class="fill" style="height:${d.present / top * 110}px"></span><span class="day">${esc(d.label)}</span></button>`).join('');
+  $('chartCap').textContent = caption(days[6]);
+  $('dashChart').onclick = e => {
+    const b = e.target.closest('[data-bar]'); if (!b) return;
+    const i = Number(b.dataset.bar);
+    $('chartCap').textContent = caption(days[i]);
+    document.querySelectorAll('.bar').forEach(x => {
+      const on = x === b;
+      x.setAttribute('aria-pressed', on);
+      x.querySelector('.n').textContent = on ? days[x.dataset.bar].present : '';
+    });
+  };
+
+  const since = Date.now() - 30 * 24 * 60 * 60 * 1000, late = new Map();
+  for (const l of db.logs) if (l.late && l.ts >= since) {
+    const e = late.get(l.personId) || { name: l.name, n: 0 }; e.n++; late.set(l.personId, e);
+  }
+  $('dashLate').innerHTML = personList([...late.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).slice(0, 5)
+    .map(e => `<div class="item"><div class="grow name">${esc(e.name)}</div><div class="times">${e.n} ${e.n === 1 ? 'day' : 'days'}</div></div>`),
+    'Nobody has been late in the last 30 days.');
+
+  const used = usedCards();
+  $('dashCards').innerHTML = personList(db.people.filter(p => !used.has(p.id)).map(p => `<div class="item"><div class="grow name">${esc(p.name)}</div>
+    <span class="tag manual">Not used yet</span></div>`), db.people.length ? 'Every card has been used at least once.' : 'No cards created yet.');
+}
+const usedCards = () => new Set(db.logs.filter(l => l.source === 'card').map(l => l.personId));
 
 function render() {
   $('orgName').textContent = db.settings.org || 'Attendance';
   if (view === 'scan') renderRecent();
+  if (view === 'admin') renderPin();
+  if (view === 'dash') renderDash();
   if (view === 'day') renderDay();
   if (view === 'people') renderPeople();
   if (view === 'more') renderMore();
@@ -390,6 +544,9 @@ function renderDay() {
 function renderPeople() {
   $('peopleCount').textContent = db.people.length;
   const list = [...db.people].sort((a, b) => a.name.localeCompare(b.name));
+  const created = db.people.find(p => p.id === linkFor);
+  $('newLink').classList.toggle('hidden', !created || canReadNfc());
+  if (created) { $('nlName').textContent = created.name; $('nlUrl').value = cardLink(created); }
   $('peopleList').innerHTML = list.length ? list.map(p => `<div class="item"><div class="grow"><div class="name">${esc(p.name)}</div>
     <div class="muted">${esc([p.staffId, p.dept].filter(Boolean).join(' · ')) || 'No details'}</div>
     ${canReadNfc() ? (p.cardSerial ? '' : '<span class="tag nocard">No card</span>')
@@ -402,6 +559,8 @@ function renderPeople() {
 
 function paintDraft() {
   const linkMode = !canReadNfc();
+  if (!editingId) $('personFormTitle').textContent = linkMode ? 'Create a card link' : 'Add a person';
+  $('pSave').textContent = linkMode && !editingId ? 'Create link' : 'Save';
   $('enrollBtn').classList.toggle('hidden', linkMode);
   $('newCodeBtn').classList.toggle('hidden', !(linkMode && editingId));
   if (linkMode) {
@@ -416,7 +575,7 @@ function paintDraft() {
 
 function resetForm() {
   editingId = null; draftSerial = ''; enrollWaiting = false;
-  $('personForm').reset(); $('personFormTitle').textContent = 'Add a person';
+  $('personForm').reset();
   $('cancelEdit').classList.add('hidden'); paintDraft();
 }
 
@@ -483,9 +642,42 @@ $('personForm').addEventListener('submit', e => {
     const owner = db.people.find(p => p.cardSerial === draftSerial && p.id !== editingId);
     if (owner) { alert(`That card already belongs to ${owner.name}.`); return; }
   }
-  if (editingId) Object.assign(db.people.find(p => p.id === editingId), fields);
-  else db.people.push({ id: uid(), createdAt: Date.now(), ...fields });
-  save(); resetForm(); renderPeople();
+  const newId = existing ? null : uid();
+  if (existing) Object.assign(existing, fields);
+  else db.people.push({ id: newId, createdAt: Date.now(), ...fields });
+  save(); resetForm(); linkFor = newId; renderPeople(); scrollTo(0, 0);
+});
+$('nlCopy').addEventListener('click', () => {
+  const p = db.people.find(x => x.id === linkFor);
+  if (p) copyLink(p);
+});
+$('lockBtn').addEventListener('click', lock);
+$('dashDate').addEventListener('change', renderDash);
+$('dashStats').addEventListener('click', e => {
+  const b = e.target.closest('[data-filter]'); if (!b) return;
+  dashFilter = dashFilter === b.dataset.filter ? 'all' : b.dataset.filter;
+  renderDash();
+});
+for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => { lastActive = Date.now(); });
+$('pinForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('pinErr').classList.add('hidden');
+  const pin = $('pin1').value, saved = storedPin();
+  if (!/^\d{4,8}$/.test(pin)) return pinError('The PIN must be 4 to 8 digits.');
+  if (Date.now() < pinBlockedUntil) return pinError('Too many wrong tries. Wait 30 seconds.');
+  try {
+    if (!saved) {
+      if (pin !== $('pin2').value) return pinError('The two PINs do not match.');
+      const salt = newCode();
+      localStorage.setItem(PIN_KEY, JSON.stringify({ salt, hash: await hashPin(pin, salt) }));
+    } else if (await hashPin(pin, saved.salt) !== saved.hash) {
+      if (++pinFails >= 5) { pinFails = 0; pinBlockedUntil = Date.now() + 30000; }
+      $('pin1').value = '';
+      return pinError('Wrong PIN.');
+    }
+  } catch { return pinError('This browser could not save or check the PIN.'); }
+  $('pinForm').reset();
+  unlock();
 });
 $('peopleList').addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]'), cp = e.target.closest('[data-copy]');
@@ -495,7 +687,8 @@ $('peopleList').addEventListener('click', e => {
   }
   if (ed) {
     const p = db.people.find(x => x.id === ed.dataset.edit); if (!p) return;
-    editingId = p.id; draftSerial = p.cardSerial || ''; enrollWaiting = false;
+    editingId = p.id; draftSerial = p.cardSerial || ''; enrollWaiting = false; linkFor = null;
+    $('newLink').classList.add('hidden');
     $('pName').value = p.name; $('pStaff').value = p.staffId || ''; $('pDept').value = p.dept || '';
     $('personFormTitle').textContent = `Edit ${p.name}`; $('cancelEdit').classList.remove('hidden');
     paintDraft(); scrollTo(0, 0);
@@ -552,7 +745,11 @@ $('restoreFile').addEventListener('change', async e => {
 });
 
 /* ---------- Start ---------- */
-function tick() { const n = new Date(); $('clock').textContent = `${n.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}  ${timeStr(n)}`; }
+function tick() {
+  const n = new Date();
+  $('clock').textContent = `${n.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}  ${timeStr(n)}`;
+  if (unlocked && Date.now() - lastActive > IDLE_LOCK_MS) lock();
+}
 tick(); setInterval(tick, 10000);
 render();
 paintScanner();
