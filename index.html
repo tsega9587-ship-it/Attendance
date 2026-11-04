@@ -405,6 +405,16 @@
           </div>
           <input type="file" id="restoreFile" accept="application/json,.json">
         </div>
+        <form class="card" id="changePinForm" autocomplete="off">
+          <div class="sec"><h2>Change admin PIN</h2></div>
+          <label>Current PIN <input id="cpOld" type="password" inputmode="numeric" maxlength="8" autocomplete="off" required></label>
+          <div class="row">
+            <label>New PIN <input id="cpNew" type="password" inputmode="numeric" maxlength="8" autocomplete="off" required></label>
+            <label>Confirm new PIN <input id="cpNew2" type="password" inputmode="numeric" maxlength="8" autocomplete="off" required></label>
+          </div>
+          <p class="error hidden" id="cpErr" role="alert"></p>
+          <button class="btn primary wide">Change PIN</button>
+        </form>
       </div>
       <form class="card" id="settingsForm">
         <div class="sec"><h2>Settings</h2></div>
@@ -709,6 +719,10 @@ function storedPin() { try { return JSON.parse(localStorage.getItem(PIN_KEY)); }
 async function hashPin(pin, salt) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${pin}`));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function storePin(pin) {
+  const salt = newCode();
+  localStorage.setItem(PIN_KEY, JSON.stringify({ salt, hash: await hashPin(pin, salt) }));
 }
 function pinError(msg) { $('pinErr').textContent = msg; $('pinErr').classList.remove('hidden'); }
 function unlock() { unlocked = true; lastActive = Date.now(); pinFails = 0; setView('dash'); }
@@ -1026,8 +1040,7 @@ $('pinForm').addEventListener('submit', async e => {
   try {
     if (!saved) {
       if (pin !== $('pin2').value) return pinError('The two PINs do not match.');
-      const salt = newCode();
-      localStorage.setItem(PIN_KEY, JSON.stringify({ salt, hash: await hashPin(pin, salt) }));
+      await storePin(pin);
     } else if (await hashPin(pin, saved.salt) !== saved.hash) {
       if (++pinFails >= 5) { pinFails = 0; pinBlockedUntil = Date.now() + 30000; }
       $('pin1').value = '';
@@ -1036,6 +1049,27 @@ $('pinForm').addEventListener('submit', async e => {
   } catch { return pinError('This browser could not save or check the PIN.'); }
   $('pinForm').reset();
   unlock();
+});
+$('changePinForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fail = msg => { $('cpErr').textContent = msg; $('cpErr').classList.remove('hidden'); };
+  $('cpErr').classList.add('hidden');
+  const current = $('cpOld').value, next = $('cpNew').value, saved = storedPin();
+  if (Date.now() < pinBlockedUntil) return fail('Too many wrong tries. Wait 30 seconds.');
+  if (!/^\d{4,8}$/.test(next)) return fail('The new PIN must be 4 to 8 digits.');
+  if (next !== $('cpNew2').value) return fail('The two new PINs do not match.');
+  if (next === current) return fail('The new PIN must be different from the current PIN.');
+  try {
+    if (!saved || await hashPin(current, saved.salt) !== saved.hash) {
+      if (++pinFails >= 5) { pinFails = 0; pinBlockedUntil = Date.now() + 30000; }
+      $('cpOld').value = '';
+      return fail('The current PIN is wrong.');
+    }
+    await storePin(next);
+  } catch { return fail('This browser could not save the new PIN.'); }
+  pinFails = 0;
+  $('changePinForm').reset();
+  show('info', 'PIN changed', 'Use your new PIN next time');
 });
 $('peopleList').addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]'), cp = e.target.closest('[data-copy]');
