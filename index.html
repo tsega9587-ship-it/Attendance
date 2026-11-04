@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14532d">
+<title>NFC Attendance</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f4f6f3; --card: #ffffff; --ink: #18211b; --muted: #5d6b61; --line: #dfe5df;
+    --brand: #14532d; --brand-ink: #ffffff; --brand-soft: #e3f1e7;
+    --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --warn-soft: #fdf0db; --bad-soft: #fbe6e6;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Ethiopic", sans-serif;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  header { background: var(--brand); color: var(--brand-ink); padding: 14px 16px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+  #clock { font-variant-numeric: tabular-nums; opacity: .9; white-space: nowrap; }
+  main { max-width: 620px; margin: 0 auto; padding: 16px; }
+  h2 { font-size: 17px; margin: 22px 0 8px; }
+  h2:first-child { margin-top: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .hidden { display: none !important; }
+  button, .btn { font: inherit; font-weight: 600; min-height: 44px; padding: 8px 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+  button.danger { color: var(--bad); }
+  button.small { min-height: 36px; padding: 4px 10px; font-size: 14px; }
+  button:disabled { opacity: .55; cursor: default; }
+  button.wide { width: 100%; }
+  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  input { display: block; width: 100%; margin-top: 4px; font: inherit; min-height: 44px; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; min-width: 0; }
+
+  #scanRing { width: 170px; height: 170px; margin: 8px auto 16px; border-radius: 50%; display: grid; place-items: center;
+    text-align: center; font-weight: 700; border: 6px solid var(--line); color: var(--muted); padding: 16px; }
+  #scanRing.on { border-color: var(--ok); color: var(--ok); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 14px rgba(21,128,61,.12); } }
+  @media (prefers-reduced-motion: reduce) { #scanRing.on { animation: none; } }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 13px; color: var(--muted); }
+
+  .item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .item:first-child { border-top: 0; }
+  .item .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .item .name { font-weight: 600; }
+  .times { font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
+    background: var(--brand-soft); color: var(--ok); }
+  .tag.late, .tag.manual { background: var(--warn-soft); color: var(--warn); }
+  .tag.absent, .tag.nocard { background: var(--bad-soft); color: var(--bad); }
+
+  #notice { padding: 12px 14px; border-radius: 10px; margin-bottom: 12px; background: var(--warn-soft); color: #7a3f06; font-size: 15px; }
+  #overlay { position: fixed; inset: 0; z-index: 20; display: none; place-content: center; text-align: center;
+    padding: 24px; color: #fff; pointer-events: none; }
+  #overlay.show { display: grid; }
+  #overlay.in { background: #15803d; } #overlay.out { background: #1d4ed8; }
+  #overlay.late { background: #b45309; } #overlay.err { background: #b91c1c; } #overlay.info { background: #374151; }
+  #overlay .big { font-size: 34px; font-weight: 800; overflow-wrap: anywhere; line-height: 1.2; }
+  #overlay .sub { font-size: 20px; margin-top: 8px; }
+
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; background: var(--card);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  nav button { flex: 1; border: 0; border-radius: 0; background: none; min-height: 60px; color: var(--muted); padding: 4px; }
+  nav button[aria-current="page"] { color: var(--brand); box-shadow: inset 0 3px 0 var(--brand); }
+</style>
+</head>
+<body>
+<header><h1 id="orgName">Attendance</h1><span id="clock"></span></header>
+
+<main>
+  <div id="notice" class="hidden" role="alert"></div>
+
+  <section id="v-scan">
+    <div class="card" style="text-align:center">
+      <div id="scanRing">Scanner off</div>
+      <button id="scanBtn" class="primary wide">Start scanning</button>
+      <p class="muted" id="scanHelp" style="margin:10px 0 0">Keep this screen open and hold each card against the back of the phone.</p>
+    </div>
+    <h2>Latest taps</h2>
+    <div class="card" id="recent"></div>
+  </section>
+
+  <section id="v-day" class="hidden">
+    <label>Date <input type="date" id="dayPick"></label>
+    <div class="stats" id="stats"></div>
+    <div class="card" id="dayList"></div>
+  </section>
+
+  <section id="v-people" class="hidden">
+    <h2 id="personFormTitle">Add a person</h2>
+    <form class="card" id="personForm" autocomplete="off">
+      <label>Full name <input id="pName" required maxlength="80"></label>
+      <div class="row">
+        <label>Staff ID <input id="pStaff" maxlength="30"></label>
+        <label>Department <input id="pDept" maxlength="50"></label>
+      </div>
+      <p class="muted" id="pCardState" style="margin-top:0">No card linked yet.</p>
+      <div class="row" style="margin-bottom:10px">
+        <button type="button" id="enrollBtn">Tap card to link</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+      <button type="button" id="newCodeBtn" class="wide danger hidden" style="margin-bottom:10px">Replace lost card</button>
+      <button type="button" id="cancelEdit" class="wide hidden">Cancel</button>
+    </form>
+    <h2>People (<span id="peopleCount">0</span>)</h2>
+    <div class="card" id="peopleList"></div>
+  </section>
+
+  <section id="v-more" class="hidden">
+    <h2>Export to Excel (CSV)</h2>
+    <div class="card">
+      <div class="row">
+        <label>From <input type="date" id="rFrom"></label>
+        <label>To <input type="date" id="rTo"></label>
+      </div>
+      <div class="row">
+        <button id="csvSummary">Daily summary</button>
+        <button id="csvRaw">All taps</button>
+      </div>
+    </div>
+
+    <h2>Settings</h2>
+    <form class="card" id="settingsForm">
+      <label>Office name <input id="sOrg" maxlength="60"></label>
+      <div class="row">
+        <label>Work starts <input type="time" id="sStart" required></label>
+        <label>Grace (minutes) <input type="number" id="sGrace" min="0" max="240" required></label>
+      </div>
+      <label>Ignore repeat taps for (seconds) <input type="number" id="sCooldown" min="0" max="3600" required></label>
+      <button class="primary wide">Save settings</button>
+    </form>
+
+    <h2>Backup</h2>
+    <div class="card">
+      <p class="muted" style="margin-top:0">Records are stored only on this phone. Save a backup regularly, because clearing the browser data erases them.</p>
+      <p class="muted" id="lastBackup"></p>
+      <div class="row">
+        <button id="backupBtn">Save backup</button>
+        <button id="restoreBtn">Restore</button>
+      </div>
+      <input type="file" id="restoreFile" accept="application/json,.json" class="hidden">
+    </div>
+  </section>
+</main>
+
+<div id="overlay" aria-live="assertive"><div><div class="big" id="ovBig"></div><div class="sub" id="ovSub"></div></div></div>
+
+<nav>
+  <button data-view="scan" aria-current="page">Scan</button>
+  <button data-view="day">Attendance</button>
+  <button data-view="people">People</button>
+  <button data-view="more">Reports</button>
+</nav>
+
+<script>
+'use strict';
+const KEY = 'nfc-attendance-v1';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const dateKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const timeStr = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const fmtSpan = m => `${Math.floor(m / 60)}h ${pad(Math.round(m % 60))}m`;
+
+function normalize(d) {
+  d = d && typeof d === 'object' ? d : {};
+  return {
+    people: Array.isArray(d.people) ? d.people : [],
+    logs: Array.isArray(d.logs) ? d.logs : [],
+    settings: Object.assign({ org: 'Attendance', start: '08:30', grace: 10, cooldown: 60 }, d.settings),
+    lastBackup: d.lastBackup || null,
+  };
+}
+function load() {
+  try { return normalize(JSON.parse(localStorage.getItem(KEY))); } catch { return normalize(null); }
+}
+let db = load();
+/* iPhone card taps can open a new Safari tab, so always pick up what other tabs saved. */
+function sync() {
+  try { const raw = localStorage.getItem(KEY); if (raw) db = normalize(JSON.parse(raw)); } catch {}
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(db)); return true; }
+  catch { notice('This phone could not save the record. Storage may be full or blocked, so save a backup now.'); return false; }
+}
+function notice(msg) { const n = $('notice'); n.textContent = msg || ''; n.classList.toggle('hidden', !msg); }
+
+/* ---------- Attendance logic ---------- */
+function logsFor(date) { return db.logs.filter(l => dateKey(new Date(l.ts)) === date).sort((a, b) => a.ts - b.ts); }
+
+function isLate(ts) {
+  const [h, m] = db.settings.start.split(':').map(Number);
+  const limit = new Date(ts); limit.setHours(h, m + Number(db.settings.grace), 59, 999);
+  return ts > limit.getTime();
+}
+
+function record(person, source) {
+  sync();
+  const now = Date.now();
+  const today = logsFor(dateKey()).filter(l => l.personId === person.id);
+  const last = today[today.length - 1];
+  if (source === 'card' && last && now - last.ts < db.settings.cooldown * 1000) {
+    show('info', person.name, `Already recorded at ${timeStr(last.ts)}`);
+    return;
+  }
+  const type = !last || last.type === 'OUT' ? 'IN' : 'OUT';
+  const late = type === 'IN' && today.length === 0 && isLate(now);
+  db.logs.push({ id: uid(), personId: person.id, name: person.name, staffId: person.staffId || '', dept: person.dept || '', type, ts: now, source, late });
+  if (!save()) return;
+  show(type === 'OUT' ? 'out' : late ? 'late' : 'in', person.name,
+    `${type === 'IN' ? 'Checked in' : 'Checked out'} ${timeStr(now)}${late ? ' · Late' : ''}`);
+  render();
+}
+
+/* Build one row per person for a date. Removed people still appear if they have records. */
+function dayRows(date) {
+  const logs = logsFor(date), rows = new Map();
+  for (const l of logs) {
+    if (!rows.has(l.personId)) rows.set(l.personId, { id: l.personId, name: l.name, staffId: l.staffId, dept: l.dept, logs: [] });
+    rows.get(l.personId).logs.push(l);
+  }
+  for (const p of db.people) {
+    if (!rows.has(p.id) && dateKey(new Date(p.createdAt)) <= date)
+      rows.set(p.id, { id: p.id, name: p.name, staffId: p.staffId, dept: p.dept, logs: [] });
+  }
+  return [...rows.values()].map(r => {
+    const first = r.logs.find(l => l.type === 'IN');
+    const lastLog = r.logs[r.logs.length - 1];
+    let minutes = 0, open = null;
+    for (const l of r.logs) {
+      if (l.type === 'IN') open = l.ts;
+      else if (open) { minutes += (l.ts - open) / 60000; open = null; }
+    }
+    return { ...r, firstIn: first ? first.ts : null, lastOut: lastLog && lastLog.type === 'OUT' ? lastLog.ts : null,
+      inside: !!lastLog && lastLog.type === 'IN', minutes, late: !!(first && first.late),  // saved at tap time, so later settings changes don't rewrite history
+      manual: r.logs.some(l => l.source === 'manual') };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/* ---------- NFC ---------- */
+let reader = null, abort = null, enrollWaiting = false, draftSerial = '';
+
+const canReadNfc = () => 'NDEFReader' in window;  // Android Chrome. Otherwise cards work through their link.
+
+/* Each card holds a private link. iPhones open it when the card is tapped. */
+function newCode() {
+  const a = crypto.getRandomValues(new Uint8Array(8));
+  return [...a].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+const cardLink = p => `${location.origin}${location.pathname.replace(/index\.html$/, '')}#c=${p.cardCode}`;
+
+function handleCardLink() {
+  const m = location.hash.match(/^#c=([0-9a-f]+)$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);  // a reload must not record again
+  sync();
+  const person = db.people.find(p => p.cardCode === m[1]);
+  if (view !== 'scan') setView('scan');
+  if (person) record(person, 'card');
+  else show('err', 'Unknown card', 'This card is not registered on this phone');
+}
+
+async function copyLink(p) {
+  const link = cardLink(p);
+  try { await navigator.clipboard.writeText(link); show('info', 'Link copied', `Write it to ${p.name}'s card`); }
+  catch { prompt('Copy this link and write it to the card:', link); }
+}
+
+async function startNfc() {
+  if (reader) return true;
+  if (!canReadNfc()) return false;
+  try {
+    const r = new NDEFReader();
+    const ctrl = new AbortController();
+    r.onreading = e => onCard(e.serialNumber);
+    r.onreadingerror = () => show('err', 'Card not readable', 'Try again, or use a different card');
+    await r.scan({ signal: ctrl.signal });
+    reader = r; abort = ctrl; notice(''); paintScanner();
+    return true;
+  } catch (e) {
+    notice(e && e.name === 'NotAllowedError' ? 'NFC permission was blocked. Allow NFC for this site in Chrome settings.'
+      : e && e.name === 'NotReadableError' ? 'NFC is turned off. Turn it on in the phone settings, then try again.'
+      : `Could not start NFC: ${e && e.message ? e.message : 'unknown error'}`);
+    return false;
+  }
+}
+function stopNfc() { if (abort) abort.abort(); reader = null; abort = null; paintScanner(); }
+
+function paintScanner() {
+  const on = !!reader, linkMode = !canReadNfc();
+  $('scanBtn').classList.toggle('hidden', linkMode);
+  $('scanRing').classList.toggle('on', on || linkMode);
+  $('scanRing').textContent = on || linkMode ? 'Ready. Tap a card' : 'Scanner off';
+  if (linkMode) $('scanHelp').textContent = 'Hold the card near the top of the unlocked iPhone, then tap the notification that appears.';
+  $('scanBtn').textContent = on ? 'Stop scanning' : 'Start scanning';
+  $('scanBtn').classList.toggle('primary', !on);
+}
+
+function onCard(serial) {
+  serial = (serial || '').toLowerCase();
+  if (!serial) { show('err', 'Card has no readable ID', 'Use a different card'); return; }
+  if (enrollWaiting) {
+    const owner = db.people.find(p => p.cardSerial === serial && p.id !== editingId);
+    if (owner) { show('err', 'Card already in use', owner.name); return; }
+    enrollWaiting = false; draftSerial = serial; paintDraft(); show('info', 'Card linked', 'Press Save to finish');
+    return;
+  }
+  const person = db.people.find(p => p.cardSerial === serial);
+  if (person) { record(person, 'card'); return; }
+  show('err', 'Unknown card', 'Opening registration');
+  draftSerial = serial; setView('people'); paintDraft(); $('pName').focus();
+}
+
+/* ---------- Feedback ---------- */
+let ovTimer, audio;
+function beep(kind) {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = kind === 'err' ? 220 : kind === 'out' ? 660 : 880;
+    g.gain.value = .15; o.connect(g); g.connect(audio.destination);
+    o.start(); o.stop(audio.currentTime + (kind === 'err' ? .35 : .15));
+  } catch {}
+}
+function show(kind, big, sub) {
+  const o = $('overlay');
+  o.className = `show ${kind}`; $('ovBig').textContent = big; $('ovSub').textContent = sub;
+  beep(kind);
+  if (navigator.vibrate) navigator.vibrate(kind === 'err' ? [120, 80, 120] : 120);
+  clearTimeout(ovTimer); ovTimer = setTimeout(() => { o.className = ''; }, canReadNfc() ? 1800 : 3000);
+}
+
+/* ---------- Rendering ---------- */
+let view = 'scan', editingId = null;
+function setView(v) {
+  view = v;
+  for (const s of ['scan', 'day', 'people', 'more']) $('v-' + s).classList.toggle('hidden', s !== v);
+  document.querySelectorAll('nav button').forEach(b => {
+    if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  render(); scrollTo(0, 0);
+}
+
+function render() {
+  $('orgName').textContent = db.settings.org || 'Attendance';
+  if (view === 'scan') renderRecent();
+  if (view === 'day') renderDay();
+  if (view === 'people') renderPeople();
+  if (view === 'more') renderMore();
+}
+
+function renderRecent() {
+  const items = db.logs.slice(-8).reverse();
+  $('recent').innerHTML = items.length ? items.map(l => `<div class="item"><div class="grow"><div class="name">${esc(l.name)}</div>
+    <div class="muted">${l.type === 'IN' ? 'Checked in' : 'Checked out'}</div></div><div class="times">${timeStr(l.ts)}</div></div>`).join('')
+    : '<p class="muted" style="margin:0">No taps yet.</p>';
+}
+
+function renderDay() {
+  const date = $('dayPick').value || dateKey();
+  $('dayPick').value = date;
+  const rows = dayRows(date), isToday = date === dateKey();
+  const present = rows.filter(r => r.logs.length), absent = rows.length - present.length;
+  $('stats').innerHTML = [['Present', present.length], ['Late', present.filter(r => r.late).length], ['Absent', absent]]
+    .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+  $('dayList').innerHTML = rows.length ? rows.map(r => {
+    const tag = !r.logs.length ? '<span class="tag absent">Absent</span>' : r.late ? '<span class="tag late">Late</span>' : '<span class="tag">On time</span>';
+    const man = r.manual ? ' <span class="tag manual">Manual</span>' : '';
+    const times = r.logs.length ? `<div class="muted times">In ${timeStr(r.firstIn)} · Out ${r.lastOut ? timeStr(r.lastOut) : '-'}${r.minutes ? ' · ' + fmtSpan(r.minutes) : ''}</div>` : '';
+    const canMark = isToday && db.people.some(p => p.id === r.id);
+    const btn = canMark ? `<button class="small" data-manual="${esc(r.id)}">${r.inside ? 'Mark out' : 'Mark in'}</button>` : '';
+    return `<div class="item"><div class="grow"><div class="name">${esc(r.name)}</div>${tag}${man}${times}</div>${btn}</div>`;
+  }).join('') : '<p class="muted" style="margin:0">Add people first, then their attendance appears here.</p>';
+}
+
+function renderPeople() {
+  $('peopleCount').textContent = db.people.length;
+  const list = [...db.people].sort((a, b) => a.name.localeCompare(b.name));
+  $('peopleList').innerHTML = list.length ? list.map(p => `<div class="item"><div class="grow"><div class="name">${esc(p.name)}</div>
+    <div class="muted">${esc([p.staffId, p.dept].filter(Boolean).join(' · ')) || 'No details'}</div>
+    ${canReadNfc() ? (p.cardSerial ? '' : '<span class="tag nocard">No card</span>')
+      : `<button class="small" style="margin-top:6px" data-copy="${esc(p.id)}">Copy card link</button>`}</div>
+    <button class="small" data-edit="${esc(p.id)}">Edit</button>
+    <button class="small danger" data-del="${esc(p.id)}">Remove</button></div>`).join('')
+    : '<p class="muted" style="margin:0">Nobody added yet.</p>';
+  paintDraft();
+}
+
+function paintDraft() {
+  const linkMode = !canReadNfc();
+  $('enrollBtn').classList.toggle('hidden', linkMode);
+  $('newCodeBtn').classList.toggle('hidden', !(linkMode && editingId));
+  if (linkMode) {
+    $('pCardState').textContent = editingId ? 'Use Copy card link in the list below to write this person\'s card.'
+      : 'A private card link is created when you save.';
+    return;
+  }
+  $('pCardState').textContent = enrollWaiting ? 'Waiting. Hold the card against the phone now.'
+    : draftSerial ? `Card linked: ${draftSerial}` : 'No card linked yet.';
+  $('enrollBtn').textContent = enrollWaiting ? 'Cancel tap' : draftSerial ? 'Use a different card' : 'Tap card to link';
+}
+
+function resetForm() {
+  editingId = null; draftSerial = ''; enrollWaiting = false;
+  $('personForm').reset(); $('personFormTitle').textContent = 'Add a person';
+  $('cancelEdit').classList.add('hidden'); paintDraft();
+}
+
+function renderMore() {
+  const s = db.settings;
+  $('sOrg').value = s.org; $('sStart').value = s.start; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown;
+  if (!$('rTo').value) { $('rTo').value = dateKey(); const d = new Date(); d.setDate(1); $('rFrom').value = dateKey(d); }
+  $('lastBackup').textContent = db.lastBackup ? `Last backup: ${new Date(db.lastBackup).toLocaleString()}` : 'No backup saved yet.';
+}
+
+/* ---------- Files ---------- */
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function csvCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;  // stop spreadsheets running a name as a formula
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+const toCsv = rows => '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
+
+function eachDate(from, to, fn) {
+  const d = new Date(from + 'T00:00:00'), end = new Date(to + 'T00:00:00');
+  while (d <= end) { fn(dateKey(d)); d.setDate(d.getDate() + 1); }
+}
+function range() {
+  const from = $('rFrom').value, to = $('rTo').value;
+  if (!from || !to || from > to) { alert('Choose a valid date range.'); return null; }
+  return [from, to];
+}
+
+/* ---------- Events ---------- */
+document.querySelector('nav').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setView(b.dataset.view); });
+$('scanBtn').addEventListener('click', async () => {
+  if (audio && audio.state === 'suspended') audio.resume();
+  if (reader) stopNfc(); else await startNfc();
+});
+$('dayPick').addEventListener('change', renderDay);
+$('dayList').addEventListener('click', e => {
+  const b = e.target.closest('[data-manual]'); if (!b) return;
+  const p = db.people.find(x => x.id === b.dataset.manual);
+  if (p && confirm(`Record ${p.name} by hand? It will be marked Manual.`)) record(p, 'manual');
+});
+$('enrollBtn').addEventListener('click', async () => {
+  if (enrollWaiting) { enrollWaiting = false; paintDraft(); return; }
+  if (await startNfc()) { enrollWaiting = true; paintDraft(); }
+});
+$('cancelEdit').addEventListener('click', resetForm);
+$('newCodeBtn').addEventListener('click', () => {
+  const p = db.people.find(x => x.id === editingId); if (!p) return;
+  if (!confirm(`Create a new card link for ${p.name}? The old card will stop working.`)) return;
+  p.cardCode = newCode();
+  if (save()) { copyLink(p); resetForm(); renderPeople(); }
+});
+$('personForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('pName').value.trim(); if (!name) return;
+  const existing = editingId && db.people.find(p => p.id === editingId);
+  const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial,
+    cardCode: (existing && existing.cardCode) || newCode() };
+  if (draftSerial) {
+    const owner = db.people.find(p => p.cardSerial === draftSerial && p.id !== editingId);
+    if (owner) { alert(`That card already belongs to ${owner.name}.`); return; }
+  }
+  if (editingId) Object.assign(db.people.find(p => p.id === editingId), fields);
+  else db.people.push({ id: uid(), createdAt: Date.now(), ...fields });
+  save(); resetForm(); renderPeople();
+});
+$('peopleList').addEventListener('click', e => {
+  const ed = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]'), cp = e.target.closest('[data-copy]');
+  if (cp) {
+    const p = db.people.find(x => x.id === cp.dataset.copy);
+    if (p && p.cardCode) copyLink(p);
+  }
+  if (ed) {
+    const p = db.people.find(x => x.id === ed.dataset.edit); if (!p) return;
+    editingId = p.id; draftSerial = p.cardSerial || ''; enrollWaiting = false;
+    $('pName').value = p.name; $('pStaff').value = p.staffId || ''; $('pDept').value = p.dept || '';
+    $('personFormTitle').textContent = `Edit ${p.name}`; $('cancelEdit').classList.remove('hidden');
+    paintDraft(); scrollTo(0, 0);
+  }
+  if (del) {
+    const p = db.people.find(x => x.id === del.dataset.del); if (!p) return;
+    if (confirm(`Remove ${p.name}? Past attendance records are kept.`)) {
+      db.people = db.people.filter(x => x.id !== p.id);
+      if (editingId === p.id) resetForm();
+      save(); renderPeople();
+    }
+  }
+});
+$('settingsForm').addEventListener('submit', e => {
+  e.preventDefault();
+  db.settings = { org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value,
+    grace: Math.max(0, Number($('sGrace').value) || 0), cooldown: Math.max(0, Number($('sCooldown').value) || 0) };
+  if (save()) { show('info', 'Saved', ''); render(); }
+});
+$('csvSummary').addEventListener('click', () => {
+  const r = range(); if (!r) return;
+  const rows = [['Date', 'Name', 'Staff ID', 'Department', 'Status', 'First in', 'Last out', 'Hours worked', 'Manual entry']];
+  eachDate(r[0], r[1], date => {
+    for (const x of dayRows(date)) rows.push([date, x.name, x.staffId, x.dept,
+      !x.logs.length ? 'Absent' : x.late ? 'Late' : 'On time',
+      x.firstIn ? timeStr(x.firstIn) : '', x.lastOut ? timeStr(x.lastOut) : '',
+      x.minutes ? (x.minutes / 60).toFixed(2) : '', x.manual ? 'Yes' : '']);
+  });
+  download(`attendance-summary-${r[0]}-to-${r[1]}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
+});
+$('csvRaw').addEventListener('click', () => {
+  const r = range(); if (!r) return;
+  const rows = [['Date', 'Time', 'Name', 'Staff ID', 'Department', 'Type', 'Source']];
+  for (const l of [...db.logs].sort((a, b) => a.ts - b.ts)) {
+    const d = dateKey(new Date(l.ts));
+    if (d >= r[0] && d <= r[1]) rows.push([d, timeStr(l.ts), l.name, l.staffId, l.dept, l.type, l.source]);
+  }
+  download(`attendance-taps-${r[0]}-to-${r[1]}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
+});
+$('backupBtn').addEventListener('click', () => {
+  db.lastBackup = Date.now(); save();
+  download(`attendance-backup-${dateKey()}.json`, JSON.stringify(db), 'application/json');
+  renderMore();
+});
+$('restoreBtn').addEventListener('click', () => $('restoreFile').click());
+$('restoreFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!Array.isArray(d.people) || !Array.isArray(d.logs)) throw 0;
+    if (!confirm(`Replace everything on this phone with this backup (${d.people.length} people, ${d.logs.length} taps)?`)) return;
+    db = normalize(d); save(); render(); show('info', 'Backup restored', '');
+  } catch { alert('That file is not a valid attendance backup.'); }
+});
+
+/* ---------- Start ---------- */
+function tick() { const n = new Date(); $('clock').textContent = `${n.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}  ${timeStr(n)}`; }
+tick(); setInterval(tick, 10000);
+render();
+paintScanner();
+if (!window.isSecureContext) notice('Open this page from an https:// address.');
+else if (navigator.standalone) notice('Open this page in Safari instead of the Home Screen icon. Cards open in Safari, and the two keep separate records.');
+window.addEventListener('hashchange', handleCardLink);
+window.addEventListener('storage', () => { sync(); render(); });
+window.addEventListener('pageshow', () => { sync(); render(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { sync(); render(); } });
+handleCardLink();
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
+if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
