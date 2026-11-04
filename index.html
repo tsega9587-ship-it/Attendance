@@ -3,227 +3,436 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#14532d">
+<meta name="theme-color" content="#0f172a">
+<meta name="color-scheme" content="light dark">
 <title>NFC Attendance</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <style>
   :root {
-    --bg: #f4f6f3; --card: #ffffff; --ink: #18211b; --muted: #5d6b61; --line: #dfe5df;
-    --brand: #14532d; --brand-ink: #ffffff; --brand-soft: #e3f1e7;
-    --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --warn-soft: #fdf0db; --bad-soft: #fbe6e6;
+    --bg: #f4f6f9; --surface: #ffffff; --surface-2: #f8fafc; --ink: #0f172a; --ink-2: #334155; --muted: #64748b;
+    --line: #e5e9f0; --brand: #0f766e; --brand-strong: #115e59; --brand-soft: #ccfbf1; --brand-ink: #ffffff;
+    --hero-a: #0f172a; --hero-b: #134e4a;
+    --ok: #047857; --ok-soft: #d1fae5; --warn: #b45309; --warn-soft: #fef3c7; --bad: #b91c1c; --bad-soft: #fee2e2;
+    --wait: #475569; --wait-soft: #e2e8f0; --bar-ok: #059669; --bar-warn: #d97706; --bar-bad: #dc2626; --bar-wait: #cbd5e1;
+    --shadow: 0 1px 2px rgba(15,23,42,.05), 0 4px 16px rgba(15,23,42,.05); --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1120; --surface: #131c2e; --surface-2: #1a2438; --ink: #f1f5f9; --ink-2: #cbd5e1; --muted: #94a3b8;
+      --line: #263349; --brand: #2dd4bf; --brand-strong: #5eead4; --brand-soft: #134e4a; --brand-ink: #042f2e;
+      --hero-a: #0f1a2e; --hero-b: #0f3f3b;
+      --ok: #6ee7b7; --ok-soft: #064e3b; --warn: #fcd34d; --warn-soft: #57390b; --bad: #fca5a5; --bad-soft: #5c1a1a;
+      --wait: #cbd5e1; --wait-soft: #2a3750; --bar-ok: #34d399; --bar-warn: #fbbf24; --bar-bad: #f87171; --bar-wait: #475569;
+      --shadow: 0 1px 2px rgba(0,0,0,.3);
+    }
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Ethiopic", sans-serif;
-    padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
-  header { background: var(--brand); color: var(--brand-ink); padding: 14px 16px;
-    display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-  header h1 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
-  #clock { font-variant-numeric: tabular-nums; opacity: .9; white-space: nowrap; }
-  main { max-width: 620px; margin: 0 auto; padding: 16px; }
-  h2 { font-size: 17px; margin: 22px 0 8px; }
-  h2:first-child { margin-top: 0; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
-  .muted { color: var(--muted); font-size: 14px; }
+  body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans Ethiopic", sans-serif; }
   .hidden { display: none !important; }
-  button, .btn { font: inherit; font-weight: 600; min-height: 44px; padding: 8px 14px; border-radius: 10px;
-    border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  button.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
-  button.danger { color: var(--bad); }
-  button.small { min-height: 36px; padding: 4px 10px; font-size: 14px; }
-  button:disabled { opacity: .55; cursor: default; }
-  button.wide { width: 100%; }
-  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
-  input { display: block; width: 100%; margin-top: 4px; font: inherit; min-height: 44px; padding: 8px 10px;
-    border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
-  .row { display: flex; gap: 10px; }
+  .ic { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .row { display: flex; gap: 12px; }
   .row > * { flex: 1; min-width: 0; }
+  h2, h3, p { margin: 0; }
 
-  #scanRing { width: 170px; height: 170px; margin: 8px auto 16px; border-radius: 50%; display: grid; place-items: center;
-    text-align: center; font-weight: 700; border: 6px solid var(--line); color: var(--muted); padding: 16px; }
-  #scanRing.on { border-color: var(--ok); color: var(--ok); animation: pulse 2s infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 14px rgba(21,128,61,.12); } }
-  @media (prefers-reduced-motion: reduce) { #scanRing.on { animation: none; } }
+  /* App frame */
+  .content { min-height: 100vh; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .top { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .top-l { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .logo { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; flex: none; color: #fff;
+    background: linear-gradient(135deg, #0f766e, #0f172a); }
+  .top h1 { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pageTitle { font-size: 18px; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; }
+  .top-r { display: flex; align-items: center; gap: 10px; flex: none; }
+  #clock { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px; }
 
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
-  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
-  .stat b { display: block; font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-  .stat span { font-size: 13px; color: var(--muted); }
+  /* Navigation */
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--surface) 92%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line); }
+  .nav-brand { display: none; }
+  nav button { flex: 1; min-width: 0; min-height: 54px; padding: 4px 2px; border: 0; border-radius: 12px; background: none; color: var(--muted);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font: 600 11px/1.1 inherit; font-family: inherit; cursor: pointer; }
+  nav button[aria-current="page"] { color: var(--brand); background: var(--brand-soft); }
 
-  .item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
-  .item:first-child { border-top: 0; }
-  .item .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .item .name { font-weight: 600; }
+  /* Controls */
+  button { font-family: inherit; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 10px 16px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+  .btn.danger { color: var(--bad); }
+  .btn.wide { width: 100%; }
+  .btn.sm { min-height: 38px; padding: 6px 12px; font-size: 14px; border-radius: 10px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .icon-btn { width: 40px; height: 40px; display: grid; place-items: center; flex: none; padding: 0; border-radius: 11px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+  .icon-btn.danger { color: var(--bad); }
+  label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 12px; }
+  input, select { display: block; width: 100%; margin-top: 5px; font: inherit; font-size: 16px; min-height: 46px; padding: 9px 12px;
+    border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); color: var(--ink); }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+  input[type=file] { display: none; }
+  .search { position: relative; flex: 1; min-width: 0; }
+  .search .ic { position: absolute; left: 12px; top: 13px; color: var(--muted); pointer-events: none; }
+  .search input { margin: 0; padding-left: 40px; }
+  .filters { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .filters select { margin: 0; flex: 1 1 150px; width: auto; min-width: 0; }
+  .filters .search { flex: 2 1 200px; }
+  .datebar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .datebar input { margin: 0; flex: 1; min-width: 0; text-align: center; }
+
+  /* Surfaces */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
+  .sec { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+  .sec h2 { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+  .empty { text-align: center; color: var(--muted); font-size: 14px; padding: 20px 10px; }
+  #notice { padding: 12px 14px; border-radius: 12px; margin-bottom: 14px; background: var(--warn-soft); color: var(--warn); font-size: 14px; font-weight: 600; }
+
+  /* Scan */
+  .hero { border-radius: 22px; padding: 22px 18px; margin-bottom: 14px; text-align: center; color: #fff; background: linear-gradient(150deg, var(--hero-a), var(--hero-b)); box-shadow: var(--shadow); }
+  #bigClock { font-size: 46px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  #bigDate { font-size: 14px; opacity: .75; margin-top: 2px; }
+  #scanRing { width: 148px; height: 148px; margin: 20px auto 16px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    border: 2px solid rgba(255,255,255,.2); background: rgba(255,255,255,.06); color: rgba(255,255,255,.7); font-size: 13px; font-weight: 600; padding: 12px; }
+  #scanRing .ic { width: 42px; height: 42px; }
+  #scanRing.on { border-color: #5eead4; color: #ccfbf1; animation: pulse 2.2s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(94,234,212,.4); } 70% { box-shadow: 0 0 0 18px rgba(94,234,212,0); } 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0); } }
+  #scanHelp { font-size: 14px; opacity: .8; max-width: 340px; margin: 0 auto; }
+  #scanBtn { margin-top: 14px; background: #fff; border-color: #fff; color: #0f172a; }
+  .mini { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+  .mini div { background: rgba(255,255,255,.08); border-radius: 12px; padding: 9px; }
+  .mini b { display: block; font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .mini span { font-size: 12px; opacity: .75; }
+
+  /* Lists */
+  .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 14px; font-weight: 700; }
+  .feed-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .feed-item:first-child { border-top: 0; padding-top: 0; }
+  .feed-item:last-child { padding-bottom: 0; }
+  .name { font-weight: 600; }
   .times { font-variant-numeric: tabular-nums; }
-  .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
-    background: var(--brand-soft); color: var(--ok); }
+  .tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; flex: none; max-width: 48%; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--ok-soft); color: var(--ok); white-space: nowrap; }
   .tag.late, .tag.manual { background: var(--warn-soft); color: var(--warn); }
-  .tag.absent, .tag.nocard { background: var(--bad-soft); color: var(--bad); }
+  .tag.absent { background: var(--bad-soft); color: var(--bad); }
+  .tag.wait { background: var(--wait-soft); color: var(--wait); }
+  .person { padding: 14px 0; border-top: 1px solid var(--line); }
+  .person:first-child { border-top: 0; padding-top: 0; }
+  .person:last-child { padding-bottom: 0; }
+  .person-h { display: flex; align-items: center; gap: 12px; }
+  .sessions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .sess { background: var(--surface-2); border: 1px solid var(--line); border-left: 3px solid var(--bar-wait); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+  .sess.ok { border-left-color: var(--bar-ok); } .sess.late { border-left-color: var(--bar-warn); } .sess.miss { border-left-color: var(--bar-bad); }
+  .sess-h { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+  .sess-h b { color: var(--ink-2); font-weight: 700; }
+  .sess-a { font-size: 15px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .sess.miss .sess-a, .sess.wait .sess-a { color: var(--muted); font-weight: 500; font-size: 14px; }
+  .sess-f { font-size: 12px; font-weight: 600; color: var(--warn); margin-top: 1px; }
+  .person-f { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .person-f .btn { margin-left: auto; }
 
-  #notice { padding: 12px 14px; border-radius: 10px; margin-bottom: 12px; background: var(--warn-soft); color: #7a3f06; font-size: 15px; }
-  #overlay { position: fixed; inset: 0; z-index: 20; display: none; place-content: center; text-align: center;
-    padding: 24px; color: #fff; pointer-events: none; }
-  #overlay.show { display: grid; }
-  #overlay.in { background: #15803d; } #overlay.out { background: #1d4ed8; }
-  #overlay.late { background: #b45309; } #overlay.err { background: #b91c1c; } #overlay.info { background: #374151; }
-  #overlay .big { font-size: 34px; font-weight: 800; overflow-wrap: anywhere; line-height: 1.2; }
-  #overlay .sub { font-size: 20px; margin-top: 8px; }
-
-  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; background: var(--card);
-    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
-  nav button { flex: 1; border: 0; border-radius: 0; background: none; min-height: 60px; color: var(--muted); padding: 4px; }
-  nav button[aria-current="page"] { color: var(--brand); box-shadow: inset 0 3px 0 var(--brand); }
-  nav button { font-size: 13px; }
-
-  #headRight { display: flex; align-items: center; gap: 10px; }
-  #lockBtn { min-height: 32px; padding: 2px 10px; font-size: 13px; }
-  .stats.four { grid-template-columns: repeat(2, 1fr); }
-  button.stat { width: 100%; font-weight: 400; min-height: 72px; }
-  button.stat[aria-pressed="true"] { border-color: var(--brand); box-shadow: inset 0 0 0 2px var(--brand); }
-  .error { color: var(--bad); font-size: 14px; font-weight: 600; margin: 0 0 10px; }
-  #newLink { border-color: var(--ok); background: var(--brand-soft); }
-  #newLink input { font-size: 14px; margin-bottom: 10px; }
-
+  /* Dashboard */
+  .rate { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .rate b { font-size: 40px; line-height: 1; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stack { display: flex; gap: 2px; height: 10px; border-radius: 6px; overflow: hidden; background: var(--line); }
+  .stack i { display: block; min-width: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: block; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 6px; text-align: center; box-shadow: var(--shadow); color: var(--ink); }
+  button.stat { width: 100%; cursor: pointer; font-weight: 400; min-height: 72px; }
+  button.stat[aria-pressed="true"] { border-color: var(--brand); box-shadow: inset 0 0 0 1.5px var(--brand); }
+  .stat b { display: block; font-size: 24px; line-height: 1.15; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--muted); }
   .bars { display: flex; align-items: stretch; gap: 8px; }
-  .bar { flex: 1; min-width: 0; min-height: 150px; padding: 0; border: 0; border-radius: 0; background: none;
-    display: flex; flex-direction: column; justify-content: flex-end; align-items: center; font-weight: 400; }
+  .bar { flex: 1; min-width: 0; min-height: 150px; padding: 0; border: 0; background: none; color: var(--ink); cursor: pointer;
+    display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
   .bar .n { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; min-height: 20px; }
-  .bar .fill { width: 60%; max-width: 28px; background: var(--brand); border-radius: 4px 4px 0 0; }
-  .bar .day { width: 100%; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 4px; margin-top: 0; }
+  .bar .fill { width: 60%; max-width: 30px; background: var(--brand); border-radius: 4px 4px 0 0; }
+  .bar .day { width: 100%; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 5px; }
   .bar[aria-pressed="true"] .day { color: var(--ink); font-weight: 700; }
+  .rank { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+
+  /* Cards screen */
+  #newLink { border-color: var(--brand); background: var(--brand-soft); }
+  #newLink input { font-size: 14px; margin: 8px 0 10px; }
+  .form-label { font-size: 13px; font-weight: 700; color: var(--brand); text-transform: uppercase; letter-spacing: .04em; margin: 8px 0 10px; }
+  .emp { padding: 12px 0; border-top: 1px solid var(--line); }
+  .emp:first-child { border-top: 0; padding-top: 0; }
+  .emp:last-child { padding-bottom: 0; }
+  .emp-h { display: flex; align-items: center; gap: 12px; }
+  .emp-hours { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-variant-numeric: tabular-nums; }
+  .emp-a { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .emp-a .btn { flex: 1; }
+
+  /* Login */
+  .login { max-width: 400px; margin: 5vh auto 0; }
+  .login-ic { width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center; margin: 4px auto 12px; background: var(--brand-soft); color: var(--brand); }
+  .login h2 { text-align: center; font-size: 20px; }
+  #pinHelp { text-align: center; margin: 4px 0 16px; }
+  .error { color: var(--bad); font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+
+  /* Tap result */
+  #overlay { position: fixed; inset: 0; z-index: 20; display: none; place-content: center; text-align: center; padding: 24px; color: #fff; pointer-events: none; }
+  #overlay.show { display: grid; animation: fade .15s ease-out; }
+  #overlay.in { background: #047857; } #overlay.out { background: #1e40af; }
+  #overlay.late { background: #b45309; } #overlay.err { background: #b91c1c; } #overlay.info { background: #1e293b; }
+  .ov-ic { width: 86px; height: 86px; margin: 0 auto 18px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.18); animation: pop .25s ease-out; }
+  .ov-ic .ic { width: 44px; height: 44px; stroke-width: 2.5; }
+  #ovBig { font-size: 32px; font-weight: 700; overflow-wrap: anywhere; line-height: 1.2; }
+  #ovSub { font-size: 18px; margin-top: 8px; opacity: .92; }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes pop { from { transform: scale(.6); } }
+  @media (prefers-reduced-motion: reduce) { #scanRing.on, #overlay.show, .ov-ic { animation: none; } }
+
+  /* Computer layout */
+  @media (min-width: 900px) {
+    body { padding-left: 232px; }
+    .content { padding-bottom: 24px; }
+    nav { top: 0; right: auto; width: 232px; flex-direction: column; gap: 4px; padding: 16px 12px; border-top: 0; border-right: 1px solid var(--line); background: var(--surface); }
+    .nav-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; font-weight: 700; }
+    nav button { flex: none; flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 44px; padding: 8px 12px; font-size: 14px; }
+    .top .logo { display: none; }
+    main { padding: 22px 24px; }
+    #v-scan { max-width: 520px; margin: 0 auto; }
+    .dash-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+    .stats.six { grid-template-columns: repeat(6, 1fr); }
+    .emp-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+    .emp:nth-child(2) { border-top: 0; padding-top: 0; }
+    #v-more .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  }
 </style>
 </head>
 <body>
-<header><h1 id="orgName">Attendance</h1><div id="headRight"><span id="clock"></span><button id="lockBtn" class="hidden">Lock</button></div></header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M6 8.5a6 6 0 0 1 0 7"/><path d="M10 6a10 10 0 0 1 0 12"/><path d="M14 3.5a14.5 14.5 0 0 1 0 17"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="11" width="8" height="10" rx="2"/><rect x="3" y="14" width="8" height="7" rx="2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="3"/><circle cx="8.5" cy="11" r="2"/><path d="M5.5 16c.6-1.5 1.7-2 3-2s2.400.5 3 2M15 10h3.500M15 14h3.500"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5M8 13h8M8 17h6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2.500"/><path d="M5 15H4.500A1.500 1.500 0 0 1 3 13.500V4.500A1.500 1.500 0 0 1 4.500 3h9A1.500 1.500 0 0 1 15 4.500V5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.100 2.100 0 0 0-3-3L5 17v3ZM14 8l3 3"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.500-3.500"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12.500 5.500 5.500L20 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.500 2"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M4 12h11M10 7l5 5-5 5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+</svg>
+
+<nav id="nav" aria-label="Main">
+  <div class="nav-brand"><span class="logo"><svg class="ic"><use href="#i-scan"/></svg></span><span>Attendance</span></div>
+  <button data-view="scan" aria-current="page"><svg class="ic"><use href="#i-scan"/></svg>Scan</button>
+  <button data-view="admin" data-locked><svg class="ic"><use href="#i-lock"/></svg>Admin</button>
+  <button data-view="dash" data-unlocked class="hidden"><svg class="ic"><use href="#i-grid"/></svg>Dashboard</button>
+  <button data-view="day" data-unlocked class="hidden"><svg class="ic"><use href="#i-cal"/></svg>Attendance</button>
+  <button data-view="people" data-unlocked class="hidden"><svg class="ic"><use href="#i-card"/></svg>Cards</button>
+  <button data-view="more" data-unlocked class="hidden"><svg class="ic"><use href="#i-file"/></svg>Reports</button>
+</nav>
+
+<div class="content">
+<header class="top">
+  <div class="top-l">
+    <span class="logo"><svg class="ic"><use href="#i-scan"/></svg></span>
+    <div style="min-width:0"><h1 id="orgName">Attendance</h1><div id="pageTitle">Scan</div></div>
+  </div>
+  <div class="top-r">
+    <span id="clock"></span>
+    <button id="lockBtn" class="icon-btn hidden" aria-label="Lock admin screens" title="Lock"><svg class="ic"><use href="#i-lock"/></svg></button>
+  </div>
+</header>
 
 <main>
   <div id="notice" class="hidden" role="alert"></div>
 
   <section id="v-scan">
-    <div class="card" style="text-align:center">
-      <div id="scanRing">Scanner off</div>
-      <button id="scanBtn" class="primary wide">Start scanning</button>
-      <p class="muted" id="scanHelp" style="margin:10px 0 0">Keep this screen open and hold each card against the back of the phone.</p>
+    <div class="hero">
+      <div id="bigClock"></div>
+      <div id="bigDate"></div>
+      <div id="scanRing"><svg class="ic"><use href="#i-scan"/></svg><span id="scanRingText">Scanner off</span></div>
+      <p id="scanHelp">Keep this screen open and hold each card against the back of the phone.</p>
+      <button id="scanBtn" class="btn wide">Start scanning</button>
+      <div class="mini">
+        <div><b id="miniIn">0</b><span>Checked in today</span></div>
+        <div><b id="miniInside">0</b><span>Inside now</span></div>
+      </div>
     </div>
-    <h2>Latest taps</h2>
-    <div class="card" id="recent"></div>
+    <div class="card">
+      <div class="sec"><h2>Latest activity</h2></div>
+      <div id="recent"></div>
+    </div>
   </section>
 
   <section id="v-admin" class="hidden">
-    <form class="card" id="pinForm" autocomplete="off">
+    <form class="card login" id="pinForm" autocomplete="off">
+      <div class="login-ic"><svg class="ic"><use href="#i-lock"/></svg></div>
       <h2 id="pinTitle">Admin login</h2>
       <p class="muted" id="pinHelp"></p>
       <label>PIN <input id="pin1" type="password" inputmode="numeric" maxlength="8" autocomplete="off" required></label>
       <label id="pin2Wrap">Confirm PIN <input id="pin2" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>
       <p class="error hidden" id="pinErr" role="alert"></p>
-      <button class="primary wide" id="pinBtn">Log in</button>
+      <button class="btn primary wide" id="pinBtn">Log in</button>
+      <p class="muted" id="pinForgot" style="margin-top:14px;text-align:center">Forgot your PIN? Clear this site's data in Safari settings, create a new PIN, then restore your latest backup under Reports.</p>
     </form>
-    <p class="muted" id="pinForgot">Forgot your PIN? Clear this site's data in Safari settings, create a new PIN, then restore your latest backup under Reports.</p>
   </section>
 
   <section id="v-dash" class="hidden">
-    <label>Date <input type="date" id="dashDate"></label>
-    <div class="stats" id="dashStats"></div>
-    <p class="muted" style="margin-top:0">Tap a box to filter the staff list. Figures come from the records on this device.</p>
-    <h2 id="dashListTitle">Everyone</h2>
-    <div class="card" id="dashAttention"></div>
-    <h2>Present, last 7 days</h2>
-    <div class="card">
-      <div class="bars" id="dashChart"></div>
-      <p class="muted" id="chartCap" style="margin:10px 0 0"></p>
+    <div class="datebar">
+      <button class="icon-btn" id="dashPrev" aria-label="Previous day"><svg class="ic"><use href="#i-left"/></svg></button>
+      <input type="date" id="dashDate" aria-label="Date">
+      <button class="icon-btn" id="dashNext" aria-label="Next day"><svg class="ic"><use href="#i-right"/></svg></button>
     </div>
-    <h2>Most late, last 30 days</h2>
-    <div class="card" id="dashLate"></div>
-    <h2>Cards not used yet</h2>
-    <div class="card" id="dashCards"></div>
+    <div class="dash-grid">
+      <div>
+        <div class="card">
+          <div class="rate"><b id="dashRate">-</b><span class="muted">attendance rate</span></div>
+          <div class="stack" id="dashStack"></div>
+          <div class="legend" id="dashLegend"></div>
+        </div>
+        <div class="stats six" id="dashStats"></div>
+        <div class="filters">
+          <div class="search"><svg class="ic"><use href="#i-search"/></svg><input id="dashSearch" type="search" placeholder="Search employees" aria-label="Search employees"></div>
+          <select id="dashDept" aria-label="Department"></select>
+        </div>
+        <div class="card">
+          <div class="sec"><h2 id="dashListTitle">Everyone</h2></div>
+          <div id="dashAttention"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <div class="sec"><h2>Present, last 7 days</h2></div>
+          <div class="bars" id="dashChart"></div>
+          <p class="muted" id="chartCap" style="margin-top:10px"></p>
+        </div>
+        <div class="card">
+          <div class="sec"><h2>Most late, last 30 days</h2></div>
+          <div id="dashLate"></div>
+        </div>
+        <div class="card">
+          <div class="sec"><h2>Cards not used yet</h2></div>
+          <div id="dashCards"></div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section id="v-day" class="hidden">
-    <label>Date <input type="date" id="dayPick"></label>
+    <div class="datebar"><input type="date" id="dayPick" aria-label="Date"></div>
     <div class="stats" id="stats"></div>
     <div class="card" id="dayList"></div>
   </section>
 
   <section id="v-people" class="hidden">
     <div class="card hidden" id="newLink">
-      <p style="margin:0 0 8px"><b>Link created for <span id="nlName"></span></b></p>
+      <p class="name">Link created for <span id="nlName"></span></p>
       <input id="nlUrl" readonly aria-label="Card link">
-      <button class="primary wide" id="nlCopy">Copy link</button>
-      <p class="muted" style="margin:10px 0 0">Paste it into NFC Tools as a URL record, then write it to this person's card.</p>
+      <button class="btn primary wide" id="nlCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy link</button>
+      <p class="muted" style="margin-top:10px">Paste it into NFC Tools as a URL record, then write it to this person's card.</p>
     </div>
-    <h2 id="personFormTitle">Add a person</h2>
-    <form class="card" id="personForm" autocomplete="off">
+
+    <form class="card hidden" id="personForm" autocomplete="off">
+      <div class="sec"><h2 id="personFormTitle">Add an employee</h2></div>
+      <p class="form-label">Employee</p>
       <label>Full name <input id="pName" required maxlength="80"></label>
       <div class="row">
         <label>Staff ID <input id="pStaff" maxlength="30"></label>
         <label>Department <input id="pDept" maxlength="50"></label>
       </div>
+      <p class="form-label">Working hours</p>
       <div class="row">
-        <label>Check-in time <input type="time" id="pStart" required></label>
-        <label>Check-out time <input type="time" id="pEnd" required></label>
+        <label>Morning check-in <input type="time" id="pStart" required></label>
+        <label>Morning check-out <input type="time" id="pLunchOut" required></label>
       </div>
-      <p class="muted" id="pCardState" style="margin-top:0">No card linked yet.</p>
+      <div class="row">
+        <label>Afternoon check-in <input type="time" id="pLunchIn" required></label>
+        <label>Afternoon check-out <input type="time" id="pEnd" required></label>
+      </div>
+      <p class="muted" id="pCardState" style="margin-bottom:12px">No card linked yet.</p>
       <div class="row" style="margin-bottom:10px">
-        <button type="button" id="enrollBtn">Tap card to link</button>
-        <button type="submit" class="primary" id="pSave">Save</button>
+        <button type="button" id="enrollBtn" class="btn">Tap card to link</button>
+        <button type="submit" class="btn primary" id="pSave">Save</button>
       </div>
-      <button type="button" id="newCodeBtn" class="wide danger hidden" style="margin-bottom:10px">Replace lost card</button>
-      <button type="button" id="cancelEdit" class="wide hidden">Cancel</button>
+      <button type="button" id="newCodeBtn" class="btn wide danger hidden" style="margin-bottom:10px">Replace lost card</button>
+      <button type="button" id="cancelEdit" class="btn wide">Cancel</button>
     </form>
-    <h2>People (<span id="peopleCount">0</span>)</h2>
-    <div class="card" id="peopleList"></div>
+
+    <div class="filters">
+      <div class="search"><svg class="ic"><use href="#i-search"/></svg><input id="peopleSearch" type="search" placeholder="Search employees" aria-label="Search employees"></div>
+      <button class="btn primary" id="addBtn"><svg class="ic"><use href="#i-plus"/></svg>Add employee</button>
+    </div>
+    <div class="card">
+      <div class="sec"><h2>Employees (<span id="peopleCount">0</span>)</h2></div>
+      <div id="peopleList" class="emp-list"></div>
+    </div>
   </section>
 
   <section id="v-more" class="hidden">
-    <h2>Export to Excel (CSV)</h2>
-    <div class="card">
-      <div class="row">
-        <label>From <input type="date" id="rFrom"></label>
-        <label>To <input type="date" id="rTo"></label>
+    <div class="two">
+      <div>
+        <div class="card">
+          <div class="sec"><h2>Export to Excel</h2></div>
+          <div class="row">
+            <label>From <input type="date" id="rFrom"></label>
+            <label>To <input type="date" id="rTo"></label>
+          </div>
+          <div class="row">
+            <button class="btn" id="csvSummary"><svg class="ic"><use href="#i-down"/></svg>Daily summary</button>
+            <button class="btn" id="csvRaw"><svg class="ic"><use href="#i-down"/></svg>All taps</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sec"><h2>Backup</h2></div>
+          <p class="muted">Records are stored only on this device. Save a backup regularly, because clearing the browser data erases them.</p>
+          <p class="muted" id="lastBackup" style="margin:8px 0 12px"></p>
+          <div class="row">
+            <button class="btn" id="backupBtn">Save backup</button>
+            <button class="btn" id="restoreBtn">Restore</button>
+          </div>
+          <input type="file" id="restoreFile" accept="application/json,.json">
+        </div>
       </div>
-      <div class="row">
-        <button id="csvSummary">Daily summary</button>
-        <button id="csvRaw">All taps</button>
-      </div>
-    </div>
-
-    <h2>Settings</h2>
-    <form class="card" id="settingsForm">
-      <label>Office name <input id="sOrg" maxlength="60"></label>
-      <div class="row">
-        <label>Default check-in <input type="time" id="sStart" required></label>
-        <label>Default check-out <input type="time" id="sEnd" required></label>
-      </div>
-      <label>Grace before late (minutes) <input type="number" id="sGrace" min="0" max="240" required></label>
-      <label>Ignore repeat taps for (seconds) <input type="number" id="sCooldown" min="0" max="3600" required></label>
-      <button class="primary wide">Save settings</button>
-    </form>
-
-    <h2>Backup</h2>
-    <div class="card">
-      <p class="muted" style="margin-top:0">Records are stored only on this phone. Save a backup regularly, because clearing the browser data erases them.</p>
-      <p class="muted" id="lastBackup"></p>
-      <div class="row">
-        <button id="backupBtn">Save backup</button>
-        <button id="restoreBtn">Restore</button>
-      </div>
-      <input type="file" id="restoreFile" accept="application/json,.json" class="hidden">
+      <form class="card" id="settingsForm">
+        <div class="sec"><h2>Settings</h2></div>
+        <label>Office name <input id="sOrg" maxlength="60"></label>
+        <p class="form-label">Default working hours</p>
+        <div class="row">
+          <label>Morning check-in <input type="time" id="sStart" required></label>
+          <label>Morning check-out <input type="time" id="sLunchOut" required></label>
+        </div>
+        <div class="row">
+          <label>Afternoon check-in <input type="time" id="sLunchIn" required></label>
+          <label>Afternoon check-out <input type="time" id="sEnd" required></label>
+        </div>
+        <p class="muted" style="margin-bottom:12px">New employees start with these hours.</p>
+        <p class="form-label">Rules</p>
+        <label>Grace before late (minutes) <input type="number" id="sGrace" min="0" max="240" required></label>
+        <label>Ignore repeat taps for (seconds) <input type="number" id="sCooldown" min="0" max="3600" required></label>
+        <button class="btn primary wide">Save settings</button>
+      </form>
     </div>
   </section>
 </main>
+</div>
 
-<div id="overlay" aria-live="assertive"><div><div class="big" id="ovBig"></div><div class="sub" id="ovSub"></div></div></div>
-
-<nav>
-  <button data-view="scan" aria-current="page">Scan</button>
-  <button data-view="admin" data-locked>Admin</button>
-  <button data-view="dash" data-unlocked class="hidden">Dashboard</button>
-  <button data-view="day" data-unlocked class="hidden">Attendance</button>
-  <button data-view="people" data-unlocked class="hidden">Cards</button>
-  <button data-view="more" data-unlocked class="hidden">Reports</button>
-</nav>
+<div id="overlay" aria-live="assertive"><div>
+  <div class="ov-ic"><svg class="ic"><use id="ovIcon" href="#i-check"/></svg></div>
+  <div id="ovBig"></div><div id="ovSub"></div>
+</div></div>
 
 <script>
 'use strict';
@@ -234,14 +443,24 @@ const pad = n => String(n).padStart(2, '0');
 const dateKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const timeStr = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const fmtSpan = m => `${Math.floor(m / 60)}h ${pad(Math.round(m % 60))}m`;
+const fmtSpan = m => { const t = Math.round(m); return `${Math.floor(t / 60)}h ${pad(t % 60)}m`; };
+const icon = name => `<svg class="ic"><use href="#i-${name}"/></svg>`;
+
+function avatar(name) {
+  const parts = String(name).trim().split(/\s+/);
+  const letters = (parts[0][0] || '?') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
+  let hash = 0;
+  for (const c of String(name)) hash = (hash * 31 + c.charCodeAt(0)) % 360;
+  return `<span class="avatar" aria-hidden="true" style="background:hsl(${hash} 55% 88%);color:hsl(${hash} 60% 26%)">${esc(letters.toUpperCase())}</span>`;
+}
+const empty = text => `<p class="empty">${esc(text)}</p>`;
 
 function normalize(d) {
   d = d && typeof d === 'object' ? d : {};
   return {
     people: Array.isArray(d.people) ? d.people : [],
     logs: Array.isArray(d.logs) ? d.logs : [],
-    settings: Object.assign({ org: 'Attendance', start: '08:30', end: '17:30', grace: 10, cooldown: 60 }, d.settings),
+    settings: Object.assign({ org: 'Attendance', start: '08:30', lunchOut: '12:30', lunchIn: '13:30', end: '17:30', grace: 10, cooldown: 60 }, d.settings),
     lastBackup: d.lastBackup || null,
   };
 }
@@ -255,7 +474,7 @@ function sync() {
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(db)); return true; }
-  catch { notice('This phone could not save the record. Storage may be full or blocked, so save a backup now.'); return false; }
+  catch { notice('This device could not save the record. Storage may be full or blocked, so save a backup now.'); return false; }
 }
 function notice(msg) { const n = $('notice'); n.textContent = msg || ''; n.classList.toggle('hidden', !msg); }
 
@@ -263,17 +482,38 @@ function notice(msg) { const n = $('notice'); n.textContent = msg || ''; n.class
 function logsFor(date) { return db.logs.filter(l => dateKey(new Date(l.ts)) === date).sort((a, b) => a.ts - b.ts); }
 
 /* Each person's own hours, falling back to the office defaults. */
-const schedule = p => ({ start: (p && p.workStart) || db.settings.start, end: (p && p.workEnd) || db.settings.end });
+const schedule = p => ({
+  start: (p && p.workStart) || db.settings.start, lunchOut: (p && p.lunchOut) || db.settings.lunchOut,
+  lunchIn: (p && p.lunchIn) || db.settings.lunchIn, end: (p && p.workEnd) || db.settings.end,
+});
+const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
-function isLate(ts, person) {
-  const [h, m] = schedule(person).start.split(':').map(Number);
+function isLate(ts, due) {
+  const [h, m] = due.split(':').map(Number);
   const limit = new Date(ts); limit.setHours(h, m + Number(db.settings.grace), 59, 999);
   return ts > limit.getTime();
 }
-function isEarly(ts, person) {
-  const [h, m] = schedule(person).end.split(':').map(Number);
+function isEarly(ts, due) {
+  const [h, m] = due.split(':').map(Number);
   const limit = new Date(ts); limit.setHours(h, m, 0, 0);
   return ts < limit.getTime();
+}
+
+/* A tap belongs to the morning until halfway through the lunch break. */
+function sessionAt(ts, hours) {
+  const d = new Date(ts), mins = d.getHours() * 60 + d.getMinutes();
+  return mins < (toMin(hours.lunchOut) + toMin(hours.lunchIn)) / 2 ? 'am' : 'pm';
+}
+const logSession = (l, hours) => l.session || sessionAt(l.ts, hours);
+
+/* Works out what a tap means, including a forgotten morning check-out or an early return from lunch. */
+function nextTap(now, today, hours) {
+  const last = today[today.length - 1];
+  let session = sessionAt(now, hours);
+  if (last && last.type === 'IN' && logSession(last, hours) === session) return { type: 'OUT', session };
+  const d = new Date(now), mins = d.getHours() * 60 + d.getMinutes();
+  if (mins >= toMin(hours.lunchOut) && today.some(l => l.type === 'OUT' && logSession(l, hours) === 'am')) session = 'pm';
+  return { type: 'IN', session };
 }
 
 function record(person, source) {
@@ -285,15 +525,28 @@ function record(person, source) {
     show('info', person.name, `Already recorded at ${timeStr(last.ts)}`);
     return;
   }
-  const type = !last || last.type === 'OUT' ? 'IN' : 'OUT';
-  const late = type === 'IN' && today.length === 0 && isLate(now, person);
-  const early = type === 'OUT' && isEarly(now, person);
   const hours = schedule(person);
-  db.logs.push({ id: uid(), personId: person.id, name: person.name, staffId: person.staffId || '', dept: person.dept || '', type, ts: now, source, late, early, sched: [hours.start, hours.end] });
+  const { type, session } = nextTap(now, today, hours);
+  const isAm = session === 'am';
+  const firstIn = !today.some(l => l.type === 'IN' && logSession(l, hours) === session);
+  const late = type === 'IN' && firstIn && isLate(now, isAm ? hours.start : hours.lunchIn);
+  const early = type === 'OUT' && isEarly(now, isAm ? hours.lunchOut : hours.end);
+  db.logs.push({ id: uid(), personId: person.id, name: person.name, staffId: person.staffId || '', dept: person.dept || '', type, ts: now, source, session, late, early,
+    sched: [hours.start, hours.lunchOut, hours.lunchIn, hours.end] });
   if (!save()) return;
   show(type === 'OUT' ? 'out' : late ? 'late' : 'in', person.name,
-    `${type === 'IN' ? 'Checked in' : 'Checked out'} ${timeStr(now)}${late ? ' · Late' : ''}${early ? ' · Left early' : ''}`);
+    `${isAm ? 'Morning' : 'Afternoon'} ${type === 'IN' ? 'check-in' : 'check-out'} ${timeStr(now)}${late ? ' · Late' : ''}${early ? ' · Left early' : ''}`);
   render();
+}
+
+/* A session counts as missed once its check-in and grace period have passed with no tap. */
+function sessionMissed(date, due, person) {
+  const today = dateKey();
+  if (date > today) return false;
+  const [h, m] = due.split(':').map(Number);
+  const dueAt = new Date(`${date}T00:00:00`); dueAt.setHours(h, m, 0, 0);
+  if (person && person.createdAt > dueAt.getTime()) return false;  // registered after this session began
+  return date < today || isLate(Date.now(), due);
 }
 
 /* Build one row per person for a date. Removed people still appear if they have records. */
@@ -315,11 +568,20 @@ function dayRows(date) {
       if (l.type === 'IN') open = l.ts;
       else if (open) { minutes += (l.ts - open) / 60000; open = null; }
     }
+    const person = db.people.find(p => p.id === r.id);
     const saved = r.logs[0] && r.logs[0].sched;  // the hours that applied on the day, not today's
-    const sched = saved ? { start: saved[0], end: saved[1] } : schedule(db.people.find(p => p.id === r.id));
-    return { ...r, sched, early: !!(lastLog && lastLog.type === 'OUT' && lastLog.early),
+    const sched = saved && saved.length === 4 ? { start: saved[0], lunchOut: saved[1], lunchIn: saved[2], end: saved[3] } : schedule(person);
+    const part = (id, due) => {
+      const logs = r.logs.filter(l => logSession(l, sched) === id);
+      const firstIn = logs.find(l => l.type === 'IN'), tail = logs[logs.length - 1];
+      return { in: firstIn ? firstIn.ts : null, out: tail && tail.type === 'OUT' ? tail.ts : null,
+        late: !!(firstIn && firstIn.late),  // saved at tap time, so later settings changes don't rewrite history
+        early: !!(tail && tail.type === 'OUT' && tail.early), missed: !firstIn && sessionMissed(date, due, person) };
+    };
+    const am = part('am', sched.start), pm = part('pm', sched.lunchIn);
+    return { ...r, sched, am, pm, early: am.early || pm.early, late: am.late || pm.late, missed: am.missed || pm.missed,
       firstIn: first ? first.ts : null, lastOut: lastLog && lastLog.type === 'OUT' ? lastLog.ts : null,
-      inside: !!lastLog && lastLog.type === 'IN', minutes, late: !!(first && first.late),  // saved at tap time, so later settings changes don't rewrite history
+      inside: !!lastLog && lastLog.type === 'IN', minutes,
       manual: r.logs.some(l => l.source === 'manual') };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -344,7 +606,7 @@ function handleCardLink() {
   const person = db.people.find(p => p.cardCode === m[1]);
   if (view !== 'scan') setView('scan');
   if (person) record(person, 'card');
-  else show('err', 'Unknown card', 'This card is not registered on this phone');
+  else show('err', 'Unknown card', 'This card is not registered on this device');
 }
 
 async function copyLink(p) {
@@ -377,10 +639,9 @@ function paintScanner() {
   const on = !!reader, linkMode = !canReadNfc();
   $('scanBtn').classList.toggle('hidden', linkMode);
   $('scanRing').classList.toggle('on', on || linkMode);
-  $('scanRing').textContent = on || linkMode ? 'Ready. Tap a card' : 'Scanner off';
+  $('scanRingText').textContent = on || linkMode ? 'Ready to tap' : 'Scanner off';
   if (linkMode) $('scanHelp').textContent = 'Hold the card near the top of the unlocked iPhone, then tap the notification that appears.';
   $('scanBtn').textContent = on ? 'Stop scanning' : 'Start scanning';
-  $('scanBtn').classList.toggle('primary', !on);
 }
 
 function onCard(serial) {
@@ -396,11 +657,12 @@ function onCard(serial) {
   if (person) { record(person, 'card'); return; }
   if (!unlocked) { show('err', 'Unknown card', 'Ask an admin to register it'); return; }
   show('err', 'Unknown card', 'Opening registration');
-  draftSerial = serial; setView('people'); paintDraft(); $('pName').focus();
+  draftSerial = serial; formOpen = true; setView('people'); paintDraft(); $('pName').focus();
 }
 
 /* ---------- Feedback ---------- */
 let ovTimer, audio;
+const OV_ICONS = { in: 'check', out: 'out', late: 'clock', err: 'x', info: 'info' };
 function beep(kind) {
   try {
     audio = audio || new (window.AudioContext || window.webkitAudioContext)();
@@ -413,14 +675,16 @@ function beep(kind) {
 function show(kind, big, sub) {
   const o = $('overlay');
   o.className = `show ${kind}`; $('ovBig').textContent = big; $('ovSub').textContent = sub;
+  $('ovIcon').setAttribute('href', `#i-${OV_ICONS[kind]}`);
   beep(kind);
   if (navigator.vibrate) navigator.vibrate(kind === 'err' ? [120, 80, 120] : 120);
   clearTimeout(ovTimer); ovTimer = setTimeout(() => { o.className = ''; }, canReadNfc() ? 1800 : 3000);
 }
 
 /* ---------- Rendering ---------- */
-let view = 'scan', editingId = null, linkFor = null;
+let view = 'scan', editingId = null, linkFor = null, formOpen = false;
 const PROTECTED = ['dash', 'day', 'people', 'more'];
+const TITLES = { scan: 'Scan', admin: 'Admin', dash: 'Dashboard', day: 'Attendance', people: 'Cards', more: 'Reports' };
 function setView(v) {
   if (PROTECTED.includes(v) && !unlocked) v = 'admin';
   view = v;
@@ -431,6 +695,7 @@ function setView(v) {
     if ('locked' in b.dataset) b.classList.toggle('hidden', unlocked);
   });
   $('lockBtn').classList.toggle('hidden', !unlocked);
+  $('pageTitle').textContent = TITLES[v];
   render(); scrollTo(0, 0);
 }
 
@@ -459,35 +724,84 @@ function renderPin() {
   $('pinForgot').classList.toggle('hidden', creating);
 }
 
-/* ---------- Dashboard ---------- */
-function personList(items, empty) {
-  return items.length ? items.join('') : `<p class="muted" style="margin:0">${esc(empty)}</p>`;
+/* ---------- Shared person views ---------- */
+function statusTags(r) {
+  if (!r.logs.length) return r.missed ? '<span class="tag absent">Absent</span>' : '<span class="tag wait">Not in yet</span>';
+  const tags = [];
+  if (r.late) tags.push('<span class="tag late">Late</span>');
+  if (r.missed) tags.push('<span class="tag absent">Half day</span>');
+  if (r.early) tags.push('<span class="tag late">Left early</span>');
+  return tags.join('') || '<span class="tag">On time</span>';
 }
+function sessionBox(label, s, from, to) {
+  const cls = s.in ? (s.late ? 'late' : 'ok') : s.missed ? 'miss' : 'wait';
+  const act = s.in ? `${timeStr(s.in)} → ${s.out ? timeStr(s.out) : '--:--'}` : s.missed ? 'Missed' : 'Not yet';
+  const flags = [s.late && 'Late', s.early && 'Left early'].filter(Boolean).join(' · ');
+  return `<div class="sess ${cls}"><div class="sess-h"><b>${label}</b><span>${from}-${to}</span></div>
+    <div class="sess-a">${act}</div>${flags ? `<div class="sess-f">${flags}</div>` : ''}</div>`;
+}
+function personRow(r, action = '') {
+  const man = r.manual ? '<span class="tag manual">Manual</span>' : '';
+  const foot = r.minutes || action
+    ? `<div class="person-f"><span>${r.minutes ? `Worked ${fmtSpan(r.minutes)}` : ''}</span>${action}</div>` : '';
+  return `<article class="person"><div class="person-h">${avatar(r.name)}
+    <div class="grow"><div class="name">${esc(r.name)}</div><div class="muted">${esc([r.dept, r.staffId].filter(Boolean).join(' · ')) || 'Employee'}</div></div>
+    <div class="tags">${statusTags(r)}${man}</div></div>
+    <div class="sessions">${sessionBox('Morning', r.am, r.sched.start, r.sched.lunchOut)}${sessionBox('Afternoon', r.pm, r.sched.lunchIn, r.sched.end)}</div>${foot}</article>`;
+}
+
+/* ---------- Dashboard ---------- */
 let dashFilter = 'all';
 const DASH_GROUPS = [
   ['all', 'Everyone', () => true],
-  ['ontime', 'On time', r => r.logs.length && !r.late],
+  ['ontime', 'On time', r => r.logs.length && !r.late && !r.missed],
   ['late', 'Late', r => r.late],
-  ['absent', 'Absent', r => !r.logs.length],
+  ['absent', 'Absent', r => r.missed],
   ['early', 'Left early', r => r.early],
   ['inside', 'Still in', r => r.inside],
 ];
+function shiftDay(date, by) { const d = new Date(`${date}T00:00:00`); d.setDate(d.getDate() + by); return dateKey(d); }
+
 function renderDash() {
-  if (!$('dashDate').value) $('dashDate').value = dateKey();
-  const rows = dayRows($('dashDate').value);
+  const input = $('dashDate');
+  if (!input.value) input.value = dateKey();
+  input.max = dateKey();
+  $('dashNext').disabled = input.value >= dateKey();
+  const all = dayRows(input.value);
+
+  const depts = [...new Set(db.people.map(p => p.dept).concat(all.map(r => r.dept)).filter(Boolean))].sort();
+  const sel = $('dashDept'), current = sel.value;
+  sel.innerHTML = `<option value="">All departments</option>${depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('')}`;
+  sel.value = depts.includes(current) ? current : '';
+  sel.classList.toggle('hidden', !depts.length);
+  const rows = sel.value ? all.filter(r => r.dept === sel.value) : all;
+
+  const sessions = rows.flatMap(r => [r.am, r.pm]);  // morning and afternoon each count, so half days lower the rate
+  const attended = sessions.filter(s => s.in).length;
+  const due = attended + sessions.filter(s => s.missed).length;
+  $('dashRate').textContent = due ? `${Math.round(attended / due * 100)}%` : '-';
+  const segs = [
+    ['On time', rows.filter(r => r.logs.length && !r.late && !r.missed).length, 'var(--bar-ok)'],
+    ['Late', rows.filter(r => r.late).length, 'var(--bar-warn)'],
+    ['Absent or half day', rows.filter(r => r.missed && !r.late).length, 'var(--bar-bad)'],
+    ['Not in yet', rows.filter(r => !r.logs.length && !r.missed).length, 'var(--bar-wait)'],
+  ];
+  $('dashStack').innerHTML = segs.filter(s => s[1]).map(([, n, c]) => `<i style="flex:${n};background:${c}"></i>`).join('');
+  $('dashLegend').innerHTML = segs.map(([k, n, c]) => `<span><i style="background:${c}"></i>${k} ${n}</span>`).join('');
+
   $('dashStats').innerHTML = DASH_GROUPS.map(([id, label, test]) => `<button class="stat" type="button" data-filter="${id}"
     aria-pressed="${dashFilter === id}"><b>${rows.filter(test).length}</b><span>${label}</span></button>`).join('');
   const group = DASH_GROUPS.find(g => g[0] === dashFilter);
-  const shown = rows.filter(group[2]);
+  const q = $('dashSearch').value.trim().toLowerCase();
+  const shown = rows.filter(group[2]).filter(r => !q || `${r.name} ${r.staffId} ${r.dept}`.toLowerCase().includes(q));
   $('dashListTitle').textContent = `${group[1]} (${shown.length})`;
-  $('dashAttention').innerHTML = personList(shown.map(r => `<div class="item"><div class="grow"><div class="name">${esc(r.name)}</div>
-      ${r.dept ? `<div class="muted">${esc(r.dept)}</div>` : ''}${timesLine(r)}</div><div>${statusTags(r)}</div></div>`),
-    db.people.length ? 'Nobody in this group.' : 'Add people under Cards to see them here.');
+  $('dashAttention').innerHTML = shown.length ? shown.map(r => personRow(r)).join('')
+    : empty(db.people.length ? 'Nobody matches this view.' : 'Add employees under Cards to see them here.');
 
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    const r = dayRows(dateKey(d)).filter(x => x.logs.length);
+    const r = dayRows(dateKey(d)).filter(x => x.logs.length && (!sel.value || x.dept === sel.value));
     days.push({ label: d.toLocaleDateString(undefined, { weekday: 'short' }),
       full: d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }),
       present: r.length, late: r.filter(x => x.late).length });
@@ -513,13 +827,14 @@ function renderDash() {
   for (const l of db.logs) if (l.late && l.ts >= since) {
     const e = late.get(l.personId) || { name: l.name, n: 0 }; e.n++; late.set(l.personId, e);
   }
-  $('dashLate').innerHTML = personList([...late.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).slice(0, 5)
-    .map(e => `<div class="item"><div class="grow name">${esc(e.name)}</div><div class="times">${e.n} ${e.n === 1 ? 'day' : 'days'}</div></div>`),
-    'Nobody has been late in the last 30 days.');
+  const ranked = [...late.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).slice(0, 5);
+  $('dashLate').innerHTML = ranked.length ? ranked.map(e => `<div class="rank">${avatar(e.name)}<div class="grow name">${esc(e.name)}</div>
+    <div class="times">${e.n} ${e.n === 1 ? 'time' : 'times'}</div></div>`).join('') : empty('Nobody has been late in the last 30 days.');
 
-  const used = usedCards();
-  $('dashCards').innerHTML = personList(db.people.filter(p => !used.has(p.id)).map(p => `<div class="item"><div class="grow name">${esc(p.name)}</div>
-    <span class="tag manual">Not used yet</span></div>`), db.people.length ? 'Every card has been used at least once.' : 'No cards created yet.');
+  const used = usedCards(), unused = db.people.filter(p => !used.has(p.id));
+  $('dashCards').innerHTML = unused.length ? unused.map(p => `<div class="rank">${avatar(p.name)}<div class="grow name">${esc(p.name)}</div>
+    <span class="tag manual">Not used yet</span></div>`).join('')
+    : empty(db.people.length ? 'Every card has been used at least once.' : 'No cards created yet.');
 }
 const usedCards = () => new Set(db.logs.filter(l => l.source === 'card').map(l => l.personId));
 
@@ -534,61 +849,65 @@ function render() {
 }
 
 function renderRecent() {
+  const today = dayRows(dateKey());
+  $('miniIn').textContent = today.filter(r => r.logs.length).length;
+  $('miniInside').textContent = today.filter(r => r.inside).length;
   const items = db.logs.slice(-8).reverse();
-  $('recent').innerHTML = items.length ? items.map(l => `<div class="item"><div class="grow"><div class="name">${esc(l.name)}</div>
-    <div class="muted">${l.type === 'IN' ? 'Checked in' : 'Checked out'}</div></div><div class="times">${timeStr(l.ts)}</div></div>`).join('')
-    : '<p class="muted" style="margin:0">No taps yet.</p>';
-}
-
-function statusTags(r) {
-  if (!r.logs.length) return '<span class="tag absent">Absent</span>';
-  return (r.late ? '<span class="tag late">Late</span>' : '<span class="tag">On time</span>')
-    + (r.early ? ' <span class="tag late">Left early</span>' : '');
-}
-function timesLine(r) {
-  const expected = `<div class="muted times">Expected ${r.sched.start} to ${r.sched.end}</div>`;
-  if (!r.logs.length) return expected;
-  return `${expected}<div class="muted times">In ${timeStr(r.firstIn)} · Out ${r.lastOut ? timeStr(r.lastOut) : '-'}${r.minutes ? ' · ' + fmtSpan(r.minutes) : ''}</div>`;
+  $('recent').innerHTML = items.length ? items.map(l => {
+    const part = l.session === 'pm' ? 'Afternoon' : l.session === 'am' ? 'Morning' : '';
+    const what = `${part ? `${part} ` : ''}${l.type === 'IN' ? 'check-in' : 'check-out'}`;
+    const tag = l.late ? '<span class="tag late">Late</span>' : l.early ? '<span class="tag late">Left early</span>' : '';
+    return `<div class="feed-item">${avatar(l.name)}<div class="grow"><div class="name">${esc(l.name)}</div>
+      <div class="muted">${what[0].toUpperCase()}${what.slice(1)}</div></div>${tag}<div class="times name">${timeStr(l.ts)}</div></div>`;
+  }).join('') : empty('No taps yet.');
 }
 
 function renderDay() {
   const date = $('dayPick').value || dateKey();
-  $('dayPick').value = date;
+  $('dayPick').value = date; $('dayPick').max = dateKey();
   const rows = dayRows(date), isToday = date === dateKey();
-  const present = rows.filter(r => r.logs.length), absent = rows.length - present.length;
+  const present = rows.filter(r => r.logs.length), absent = rows.filter(r => r.missed).length;
   $('stats').innerHTML = [['Present', present.length], ['Late', present.filter(r => r.late).length], ['Absent', absent]]
     .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
   $('dayList').innerHTML = rows.length ? rows.map(r => {
-    const tag = statusTags(r);
-    const man = r.manual ? ' <span class="tag manual">Manual</span>' : '';
-    const times = timesLine(r);
     const canMark = isToday && db.people.some(p => p.id === r.id);
-    const btn = canMark ? `<button class="small" data-manual="${esc(r.id)}">${r.inside ? 'Mark out' : 'Mark in'}</button>` : '';
-    return `<div class="item"><div class="grow"><div class="name">${esc(r.name)}</div>${tag}${man}${times}</div>${btn}</div>`;
-  }).join('') : '<p class="muted" style="margin:0">Add people first, then their attendance appears here.</p>';
+    return personRow(r, canMark ? `<button class="btn sm" data-manual="${esc(r.id)}">${r.inside ? 'Mark out' : 'Mark in'}</button>` : '');
+  }).join('') : empty('Add employees first, then their attendance appears here.');
 }
 
 function renderPeople() {
   $('peopleCount').textContent = db.people.length;
-  const list = [...db.people].sort((a, b) => a.name.localeCompare(b.name));
+  const q = $('peopleSearch').value.trim().toLowerCase();
+  const list = db.people.filter(p => !q || `${p.name} ${p.staffId} ${p.dept}`.toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const created = db.people.find(p => p.id === linkFor);
   $('newLink').classList.toggle('hidden', !created || canReadNfc());
   if (created) { $('nlName').textContent = created.name; $('nlUrl').value = cardLink(created); }
-  $('peopleList').innerHTML = list.length ? list.map(p => `<div class="item"><div class="grow"><div class="name">${esc(p.name)}</div>
-    <div class="muted">${esc([p.staffId, p.dept].filter(Boolean).join(' · ')) || 'No details'}</div>
-    <div class="muted times">Hours ${schedule(p).start} to ${schedule(p).end}</div>
-    ${canReadNfc() ? (p.cardSerial ? '' : '<span class="tag nocard">No card</span>')
-      : `<button class="small" style="margin-top:6px" data-copy="${esc(p.id)}">Copy card link</button>`}</div>
-    <button class="small" data-edit="${esc(p.id)}">Edit</button>
-    <button class="small danger" data-del="${esc(p.id)}">Remove</button></div>`).join('')
-    : '<p class="muted" style="margin:0">Nobody added yet.</p>';
+  const used = usedCards();
+  $('peopleList').innerHTML = list.length ? list.map(p => {
+    const h = schedule(p);
+    const state = canReadNfc() ? (p.cardSerial ? '' : '<span class="tag absent">No card</span>')
+      : used.has(p.id) ? '<span class="tag">Card active</span>' : '<span class="tag manual">Not used yet</span>';
+    const copy = canReadNfc() ? '' : `<button class="btn sm" data-copy="${esc(p.id)}">${icon('copy')}Copy card link</button>`;
+    return `<article class="emp"><div class="emp-h">${avatar(p.name)}<div class="grow"><div class="name">${esc(p.name)}</div>
+      <div class="muted">${esc([p.dept, p.staffId].filter(Boolean).join(' · ')) || 'Employee'}</div></div>${state}</div>
+      <div class="emp-hours"><span class="chip">Morning ${h.start}-${h.lunchOut}</span><span class="chip">Afternoon ${h.lunchIn}-${h.end}</span></div>
+      <div class="emp-a">${copy}<button class="icon-btn" data-edit="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">${icon('edit')}</button>
+      <button class="icon-btn danger" data-del="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">${icon('trash')}</button></div></article>`;
+  }).join('') : empty(db.people.length ? 'Nobody matches your search.' : 'No employees yet. Add your first employee above.');
   paintDraft();
 }
 
+function fillHours(h) {
+  $('pStart').value = h.start; $('pLunchOut').value = h.lunchOut; $('pLunchIn').value = h.lunchIn; $('pEnd').value = h.end;
+}
 function paintDraft() {
   const linkMode = !canReadNfc();
-  if (!editingId && !$('pStart').value) { $('pStart').value = db.settings.start; $('pEnd').value = db.settings.end; }
-  if (!editingId) $('personFormTitle').textContent = linkMode ? 'Create a card link' : 'Add a person';
+  const open = formOpen || !!editingId || !db.people.length;
+  $('personForm').classList.toggle('hidden', !open);
+  $('addBtn').classList.toggle('hidden', open);
+  if (!editingId && !$('pStart').value) fillHours(schedule(null));
+  if (!editingId) $('personFormTitle').textContent = 'Add an employee';
   $('pSave').textContent = linkMode && !editingId ? 'Create link' : 'Save';
   $('enrollBtn').classList.toggle('hidden', linkMode);
   $('newCodeBtn').classList.toggle('hidden', !(linkMode && editingId));
@@ -603,14 +922,15 @@ function paintDraft() {
 }
 
 function resetForm() {
-  editingId = null; draftSerial = ''; enrollWaiting = false;
+  editingId = null; draftSerial = ''; enrollWaiting = false; formOpen = false;
   $('personForm').reset();
-  $('cancelEdit').classList.add('hidden'); paintDraft();
+  paintDraft();
 }
 
 function renderMore() {
   const s = db.settings;
-  $('sOrg').value = s.org; $('sStart').value = s.start; $('sEnd').value = s.end; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown;
+  $('sOrg').value = s.org; $('sStart').value = s.start; $('sLunchOut').value = s.lunchOut; $('sLunchIn').value = s.lunchIn;
+  $('sEnd').value = s.end; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown;
   if (!$('rTo').value) { $('rTo').value = dateKey(); const d = new Date(); d.setDate(1); $('rFrom').value = dateKey(d); }
   $('lastBackup').textContent = db.lastBackup ? `Last backup: ${new Date(db.lastBackup).toLocaleString()}` : 'No backup saved yet.';
 }
@@ -639,7 +959,7 @@ function range() {
 }
 
 /* ---------- Events ---------- */
-document.querySelector('nav').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setView(b.dataset.view); });
+$('nav').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setView(b.dataset.view); });
 $('scanBtn').addEventListener('click', async () => {
   if (audio && audio.state === 'suspended') audio.resume();
   if (reader) stopNfc(); else await startNfc();
@@ -654,25 +974,32 @@ $('enrollBtn').addEventListener('click', async () => {
   if (enrollWaiting) { enrollWaiting = false; paintDraft(); return; }
   if (await startNfc()) { enrollWaiting = true; paintDraft(); }
 });
-$('cancelEdit').addEventListener('click', resetForm);
+$('addBtn').addEventListener('click', () => { formOpen = true; linkFor = null; renderPeople(); $('pName').focus(); });
+$('peopleSearch').addEventListener('input', renderPeople);
+$('dashSearch').addEventListener('input', renderDash);
+$('dashDept').addEventListener('change', renderDash);
+$('dashPrev').addEventListener('click', () => { $('dashDate').value = shiftDay($('dashDate').value || dateKey(), -1); renderDash(); });
+$('dashNext').addEventListener('click', () => { $('dashDate').value = shiftDay($('dashDate').value || dateKey(), 1); renderDash(); });
+$('cancelEdit').addEventListener('click', () => { resetForm(); renderPeople(); });
 $('newCodeBtn').addEventListener('click', () => {
   const p = db.people.find(x => x.id === editingId); if (!p) return;
   if (!confirm(`Create a new card link for ${p.name}? The old card will stop working.`)) return;
   p.cardCode = newCode();
   if (save()) { copyLink(p); resetForm(); renderPeople(); }
 });
+const hoursInOrder = (a, b, c, d) => a < b && b <= c && c < d;
 $('personForm').addEventListener('submit', e => {
   e.preventDefault();
   const name = $('pName').value.trim(); if (!name) return;
-  const workStart = $('pStart').value, workEnd = $('pEnd').value;
-  if (workEnd <= workStart) { alert('Check-out time must be after check-in time.'); return; }
-  const existing = editingId && db.people.find(p => p.id === editingId);
-  const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial,
-    workStart, workEnd, cardCode: (existing && existing.cardCode) || newCode() };
   if (draftSerial) {
     const owner = db.people.find(p => p.cardSerial === draftSerial && p.id !== editingId);
     if (owner) { alert(`That card already belongs to ${owner.name}.`); return; }
   }
+  const workStart = $('pStart').value, lunchOut = $('pLunchOut').value, lunchIn = $('pLunchIn').value, workEnd = $('pEnd').value;
+  if (!hoursInOrder(workStart, lunchOut, lunchIn, workEnd)) { alert('Enter the four times in order: morning in, morning out, afternoon in, afternoon out.'); return; }
+  const existing = editingId && db.people.find(p => p.id === editingId);
+  const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial,
+    workStart, lunchOut, lunchIn, workEnd, cardCode: (existing && existing.cardCode) || newCode() };
   const newId = existing ? null : uid();
   if (existing) Object.assign(existing, fields);
   else db.people.push({ id: newId, createdAt: Date.now(), ...fields });
@@ -721,8 +1048,8 @@ $('peopleList').addEventListener('click', e => {
     editingId = p.id; draftSerial = p.cardSerial || ''; enrollWaiting = false; linkFor = null;
     $('newLink').classList.add('hidden');
     $('pName').value = p.name; $('pStaff').value = p.staffId || ''; $('pDept').value = p.dept || '';
-    $('pStart').value = schedule(p).start; $('pEnd').value = schedule(p).end;
-    $('personFormTitle').textContent = `Edit ${p.name}`; $('cancelEdit').classList.remove('hidden');
+    fillHours(schedule(p));
+    $('personFormTitle').textContent = `Edit ${p.name}`;
     paintDraft(); scrollTo(0, 0);
   }
   if (del) {
@@ -736,19 +1063,27 @@ $('peopleList').addEventListener('click', e => {
 });
 $('settingsForm').addEventListener('submit', e => {
   e.preventDefault();
-  if ($('sEnd').value <= $('sStart').value) { alert('Default check-out must be after default check-in.'); return; }
-  db.settings = { org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value, end: $('sEnd').value,
+  if (!hoursInOrder($('sStart').value, $('sLunchOut').value, $('sLunchIn').value, $('sEnd').value)) {
+    alert('Enter the four times in order: morning in, morning out, afternoon in, afternoon out.'); return;
+  }
+  db.settings = { org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value, lunchOut: $('sLunchOut').value,
+    lunchIn: $('sLunchIn').value, end: $('sEnd').value,
     grace: Math.max(0, Number($('sGrace').value) || 0), cooldown: Math.max(0, Number($('sCooldown').value) || 0) };
-  if (!editingId) { $('pStart').value = ''; $('pEnd').value = ''; paintDraft(); }  // new people start from the new defaults
+  if (!editingId) fillHours(schedule(null));  // new people start from the new defaults
   if (save()) { show('info', 'Saved', ''); render(); }
 });
 $('csvSummary').addEventListener('click', () => {
   const r = range(); if (!r) return;
-  const rows = [['Date', 'Name', 'Staff ID', 'Department', 'Status', 'Expected in', 'First in', 'Expected out', 'Last out', 'Left early', 'Hours worked', 'Manual entry']];
+  const rows = [['Date', 'Name', 'Staff ID', 'Department',
+    'Morning status', 'Expected morning in', 'Morning in', 'Expected morning out', 'Morning out',
+    'Afternoon status', 'Expected afternoon in', 'Afternoon in', 'Expected afternoon out', 'Afternoon out',
+    'Left early', 'Hours worked', 'Manual entry']];
+  const state = s => s.in ? (s.late ? 'Late' : 'On time') : s.missed ? 'Absent' : 'Not yet';
+  const clock = ts => ts ? timeStr(ts) : '';
   eachDate(r[0], r[1], date => {
     for (const x of dayRows(date)) rows.push([date, x.name, x.staffId, x.dept,
-      !x.logs.length ? 'Absent' : x.late ? 'Late' : 'On time',
-      x.sched.start, x.firstIn ? timeStr(x.firstIn) : '', x.sched.end, x.lastOut ? timeStr(x.lastOut) : '', x.early ? 'Yes' : '',
+      state(x.am), x.sched.start, clock(x.am.in), x.sched.lunchOut, clock(x.am.out),
+      state(x.pm), x.sched.lunchIn, clock(x.pm.in), x.sched.end, clock(x.pm.out), x.early ? 'Yes' : '',
       x.minutes ? (x.minutes / 60).toFixed(2) : '', x.manual ? 'Yes' : '']);
   });
   download(`attendance-summary-${r[0]}-to-${r[1]}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
@@ -773,7 +1108,7 @@ $('restoreFile').addEventListener('change', async e => {
   try {
     const d = JSON.parse(await f.text());
     if (!Array.isArray(d.people) || !Array.isArray(d.logs)) throw 0;
-    if (!confirm(`Replace everything on this phone with this backup (${d.people.length} people, ${d.logs.length} taps)?`)) return;
+    if (!confirm(`Replace everything on this device with this backup (${d.people.length} employees, ${d.logs.length} taps)?`)) return;
     db = normalize(d); save(); render(); show('info', 'Backup restored', '');
   } catch { alert('That file is not a valid attendance backup.'); }
 });
@@ -781,7 +1116,9 @@ $('restoreFile').addEventListener('change', async e => {
 /* ---------- Start ---------- */
 function tick() {
   const n = new Date();
-  $('clock').textContent = `${n.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}  ${timeStr(n)}`;
+  $('clock').textContent = n.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  $('bigClock').textContent = timeStr(n);
+  $('bigDate').textContent = n.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   if (unlocked && Date.now() - lastActive > IDLE_LOCK_MS) lock();
 }
 tick(); setInterval(tick, 10000);
