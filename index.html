@@ -125,7 +125,7 @@
 
   <section id="v-dash" class="hidden">
     <label>Date <input type="date" id="dashDate"></label>
-    <div class="stats four" id="dashStats"></div>
+    <div class="stats" id="dashStats"></div>
     <p class="muted" style="margin-top:0">Tap a box to filter the staff list. Figures come from the records on this device.</p>
     <h2 id="dashListTitle">Everyone</h2>
     <div class="card" id="dashAttention"></div>
@@ -160,6 +160,10 @@
         <label>Staff ID <input id="pStaff" maxlength="30"></label>
         <label>Department <input id="pDept" maxlength="50"></label>
       </div>
+      <div class="row">
+        <label>Check-in time <input type="time" id="pStart" required></label>
+        <label>Check-out time <input type="time" id="pEnd" required></label>
+      </div>
       <p class="muted" id="pCardState" style="margin-top:0">No card linked yet.</p>
       <div class="row" style="margin-bottom:10px">
         <button type="button" id="enrollBtn">Tap card to link</button>
@@ -189,9 +193,10 @@
     <form class="card" id="settingsForm">
       <label>Office name <input id="sOrg" maxlength="60"></label>
       <div class="row">
-        <label>Work starts <input type="time" id="sStart" required></label>
-        <label>Grace (minutes) <input type="number" id="sGrace" min="0" max="240" required></label>
+        <label>Default check-in <input type="time" id="sStart" required></label>
+        <label>Default check-out <input type="time" id="sEnd" required></label>
       </div>
+      <label>Grace before late (minutes) <input type="number" id="sGrace" min="0" max="240" required></label>
       <label>Ignore repeat taps for (seconds) <input type="number" id="sCooldown" min="0" max="3600" required></label>
       <button class="primary wide">Save settings</button>
     </form>
@@ -236,7 +241,7 @@ function normalize(d) {
   return {
     people: Array.isArray(d.people) ? d.people : [],
     logs: Array.isArray(d.logs) ? d.logs : [],
-    settings: Object.assign({ org: 'Attendance', start: '08:30', grace: 10, cooldown: 60 }, d.settings),
+    settings: Object.assign({ org: 'Attendance', start: '08:30', end: '17:30', grace: 10, cooldown: 60 }, d.settings),
     lastBackup: d.lastBackup || null,
   };
 }
@@ -257,10 +262,18 @@ function notice(msg) { const n = $('notice'); n.textContent = msg || ''; n.class
 /* ---------- Attendance logic ---------- */
 function logsFor(date) { return db.logs.filter(l => dateKey(new Date(l.ts)) === date).sort((a, b) => a.ts - b.ts); }
 
-function isLate(ts) {
-  const [h, m] = db.settings.start.split(':').map(Number);
+/* Each person's own hours, falling back to the office defaults. */
+const schedule = p => ({ start: (p && p.workStart) || db.settings.start, end: (p && p.workEnd) || db.settings.end });
+
+function isLate(ts, person) {
+  const [h, m] = schedule(person).start.split(':').map(Number);
   const limit = new Date(ts); limit.setHours(h, m + Number(db.settings.grace), 59, 999);
   return ts > limit.getTime();
+}
+function isEarly(ts, person) {
+  const [h, m] = schedule(person).end.split(':').map(Number);
+  const limit = new Date(ts); limit.setHours(h, m, 0, 0);
+  return ts < limit.getTime();
 }
 
 function record(person, source) {
@@ -273,11 +286,13 @@ function record(person, source) {
     return;
   }
   const type = !last || last.type === 'OUT' ? 'IN' : 'OUT';
-  const late = type === 'IN' && today.length === 0 && isLate(now);
-  db.logs.push({ id: uid(), personId: person.id, name: person.name, staffId: person.staffId || '', dept: person.dept || '', type, ts: now, source, late });
+  const late = type === 'IN' && today.length === 0 && isLate(now, person);
+  const early = type === 'OUT' && isEarly(now, person);
+  const hours = schedule(person);
+  db.logs.push({ id: uid(), personId: person.id, name: person.name, staffId: person.staffId || '', dept: person.dept || '', type, ts: now, source, late, early, sched: [hours.start, hours.end] });
   if (!save()) return;
   show(type === 'OUT' ? 'out' : late ? 'late' : 'in', person.name,
-    `${type === 'IN' ? 'Checked in' : 'Checked out'} ${timeStr(now)}${late ? ' · Late' : ''}`);
+    `${type === 'IN' ? 'Checked in' : 'Checked out'} ${timeStr(now)}${late ? ' · Late' : ''}${early ? ' · Left early' : ''}`);
   render();
 }
 
@@ -300,7 +315,10 @@ function dayRows(date) {
       if (l.type === 'IN') open = l.ts;
       else if (open) { minutes += (l.ts - open) / 60000; open = null; }
     }
-    return { ...r, firstIn: first ? first.ts : null, lastOut: lastLog && lastLog.type === 'OUT' ? lastLog.ts : null,
+    const saved = r.logs[0] && r.logs[0].sched;  // the hours that applied on the day, not today's
+    const sched = saved ? { start: saved[0], end: saved[1] } : schedule(db.people.find(p => p.id === r.id));
+    return { ...r, sched, early: !!(lastLog && lastLog.type === 'OUT' && lastLog.early),
+      firstIn: first ? first.ts : null, lastOut: lastLog && lastLog.type === 'OUT' ? lastLog.ts : null,
       inside: !!lastLog && lastLog.type === 'IN', minutes, late: !!(first && first.late),  // saved at tap time, so later settings changes don't rewrite history
       manual: r.logs.some(l => l.source === 'manual') };
   }).sort((a, b) => a.name.localeCompare(b.name));
@@ -447,9 +465,11 @@ function personList(items, empty) {
 }
 let dashFilter = 'all';
 const DASH_GROUPS = [
+  ['all', 'Everyone', () => true],
   ['ontime', 'On time', r => r.logs.length && !r.late],
   ['late', 'Late', r => r.late],
   ['absent', 'Absent', r => !r.logs.length],
+  ['early', 'Left early', r => r.early],
   ['inside', 'Still in', r => r.inside],
 ];
 function renderDash() {
@@ -458,15 +478,11 @@ function renderDash() {
   $('dashStats').innerHTML = DASH_GROUPS.map(([id, label, test]) => `<button class="stat" type="button" data-filter="${id}"
     aria-pressed="${dashFilter === id}"><b>${rows.filter(test).length}</b><span>${label}</span></button>`).join('');
   const group = DASH_GROUPS.find(g => g[0] === dashFilter);
-  const shown = group ? rows.filter(group[2]) : rows;
-  $('dashListTitle').textContent = `${group ? group[1] : 'Everyone'} (${shown.length})`;
-  $('dashAttention').innerHTML = personList(shown.map(r => {
-    const tag = !r.logs.length ? '<span class="tag absent">Absent</span>'
-      : r.late ? '<span class="tag late">Late</span>' : '<span class="tag">On time</span>';
-    const times = r.logs.length ? `<div class="muted times">In ${timeStr(r.firstIn)} · Out ${r.lastOut ? timeStr(r.lastOut) : '-'}${r.minutes ? ' · ' + fmtSpan(r.minutes) : ''}</div>` : '';
-    return `<div class="item"><div class="grow"><div class="name">${esc(r.name)}</div>
-      ${r.dept ? `<div class="muted">${esc(r.dept)}</div>` : ''}${times}</div>${tag}</div>`;
-  }), db.people.length ? 'Nobody in this group.' : 'Add people under Cards to see them here.');
+  const shown = rows.filter(group[2]);
+  $('dashListTitle').textContent = `${group[1]} (${shown.length})`;
+  $('dashAttention').innerHTML = personList(shown.map(r => `<div class="item"><div class="grow"><div class="name">${esc(r.name)}</div>
+      ${r.dept ? `<div class="muted">${esc(r.dept)}</div>` : ''}${timesLine(r)}</div><div>${statusTags(r)}</div></div>`),
+    db.people.length ? 'Nobody in this group.' : 'Add people under Cards to see them here.');
 
   const days = [];
   for (let i = 6; i >= 0; i--) {
@@ -524,6 +540,17 @@ function renderRecent() {
     : '<p class="muted" style="margin:0">No taps yet.</p>';
 }
 
+function statusTags(r) {
+  if (!r.logs.length) return '<span class="tag absent">Absent</span>';
+  return (r.late ? '<span class="tag late">Late</span>' : '<span class="tag">On time</span>')
+    + (r.early ? ' <span class="tag late">Left early</span>' : '');
+}
+function timesLine(r) {
+  const expected = `<div class="muted times">Expected ${r.sched.start} to ${r.sched.end}</div>`;
+  if (!r.logs.length) return expected;
+  return `${expected}<div class="muted times">In ${timeStr(r.firstIn)} · Out ${r.lastOut ? timeStr(r.lastOut) : '-'}${r.minutes ? ' · ' + fmtSpan(r.minutes) : ''}</div>`;
+}
+
 function renderDay() {
   const date = $('dayPick').value || dateKey();
   $('dayPick').value = date;
@@ -532,9 +559,9 @@ function renderDay() {
   $('stats').innerHTML = [['Present', present.length], ['Late', present.filter(r => r.late).length], ['Absent', absent]]
     .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
   $('dayList').innerHTML = rows.length ? rows.map(r => {
-    const tag = !r.logs.length ? '<span class="tag absent">Absent</span>' : r.late ? '<span class="tag late">Late</span>' : '<span class="tag">On time</span>';
+    const tag = statusTags(r);
     const man = r.manual ? ' <span class="tag manual">Manual</span>' : '';
-    const times = r.logs.length ? `<div class="muted times">In ${timeStr(r.firstIn)} · Out ${r.lastOut ? timeStr(r.lastOut) : '-'}${r.minutes ? ' · ' + fmtSpan(r.minutes) : ''}</div>` : '';
+    const times = timesLine(r);
     const canMark = isToday && db.people.some(p => p.id === r.id);
     const btn = canMark ? `<button class="small" data-manual="${esc(r.id)}">${r.inside ? 'Mark out' : 'Mark in'}</button>` : '';
     return `<div class="item"><div class="grow"><div class="name">${esc(r.name)}</div>${tag}${man}${times}</div>${btn}</div>`;
@@ -549,6 +576,7 @@ function renderPeople() {
   if (created) { $('nlName').textContent = created.name; $('nlUrl').value = cardLink(created); }
   $('peopleList').innerHTML = list.length ? list.map(p => `<div class="item"><div class="grow"><div class="name">${esc(p.name)}</div>
     <div class="muted">${esc([p.staffId, p.dept].filter(Boolean).join(' · ')) || 'No details'}</div>
+    <div class="muted times">Hours ${schedule(p).start} to ${schedule(p).end}</div>
     ${canReadNfc() ? (p.cardSerial ? '' : '<span class="tag nocard">No card</span>')
       : `<button class="small" style="margin-top:6px" data-copy="${esc(p.id)}">Copy card link</button>`}</div>
     <button class="small" data-edit="${esc(p.id)}">Edit</button>
@@ -559,6 +587,7 @@ function renderPeople() {
 
 function paintDraft() {
   const linkMode = !canReadNfc();
+  if (!editingId && !$('pStart').value) { $('pStart').value = db.settings.start; $('pEnd').value = db.settings.end; }
   if (!editingId) $('personFormTitle').textContent = linkMode ? 'Create a card link' : 'Add a person';
   $('pSave').textContent = linkMode && !editingId ? 'Create link' : 'Save';
   $('enrollBtn').classList.toggle('hidden', linkMode);
@@ -581,7 +610,7 @@ function resetForm() {
 
 function renderMore() {
   const s = db.settings;
-  $('sOrg').value = s.org; $('sStart').value = s.start; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown;
+  $('sOrg').value = s.org; $('sStart').value = s.start; $('sEnd').value = s.end; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown;
   if (!$('rTo').value) { $('rTo').value = dateKey(); const d = new Date(); d.setDate(1); $('rFrom').value = dateKey(d); }
   $('lastBackup').textContent = db.lastBackup ? `Last backup: ${new Date(db.lastBackup).toLocaleString()}` : 'No backup saved yet.';
 }
@@ -635,9 +664,11 @@ $('newCodeBtn').addEventListener('click', () => {
 $('personForm').addEventListener('submit', e => {
   e.preventDefault();
   const name = $('pName').value.trim(); if (!name) return;
+  const workStart = $('pStart').value, workEnd = $('pEnd').value;
+  if (workEnd <= workStart) { alert('Check-out time must be after check-in time.'); return; }
   const existing = editingId && db.people.find(p => p.id === editingId);
   const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial,
-    cardCode: (existing && existing.cardCode) || newCode() };
+    workStart, workEnd, cardCode: (existing && existing.cardCode) || newCode() };
   if (draftSerial) {
     const owner = db.people.find(p => p.cardSerial === draftSerial && p.id !== editingId);
     if (owner) { alert(`That card already belongs to ${owner.name}.`); return; }
@@ -690,6 +721,7 @@ $('peopleList').addEventListener('click', e => {
     editingId = p.id; draftSerial = p.cardSerial || ''; enrollWaiting = false; linkFor = null;
     $('newLink').classList.add('hidden');
     $('pName').value = p.name; $('pStaff').value = p.staffId || ''; $('pDept').value = p.dept || '';
+    $('pStart').value = schedule(p).start; $('pEnd').value = schedule(p).end;
     $('personFormTitle').textContent = `Edit ${p.name}`; $('cancelEdit').classList.remove('hidden');
     paintDraft(); scrollTo(0, 0);
   }
@@ -704,17 +736,19 @@ $('peopleList').addEventListener('click', e => {
 });
 $('settingsForm').addEventListener('submit', e => {
   e.preventDefault();
-  db.settings = { org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value,
+  if ($('sEnd').value <= $('sStart').value) { alert('Default check-out must be after default check-in.'); return; }
+  db.settings = { org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value, end: $('sEnd').value,
     grace: Math.max(0, Number($('sGrace').value) || 0), cooldown: Math.max(0, Number($('sCooldown').value) || 0) };
+  if (!editingId) { $('pStart').value = ''; $('pEnd').value = ''; paintDraft(); }  // new people start from the new defaults
   if (save()) { show('info', 'Saved', ''); render(); }
 });
 $('csvSummary').addEventListener('click', () => {
   const r = range(); if (!r) return;
-  const rows = [['Date', 'Name', 'Staff ID', 'Department', 'Status', 'First in', 'Last out', 'Hours worked', 'Manual entry']];
+  const rows = [['Date', 'Name', 'Staff ID', 'Department', 'Status', 'Expected in', 'First in', 'Expected out', 'Last out', 'Left early', 'Hours worked', 'Manual entry']];
   eachDate(r[0], r[1], date => {
     for (const x of dayRows(date)) rows.push([date, x.name, x.staffId, x.dept,
       !x.logs.length ? 'Absent' : x.late ? 'Late' : 'On time',
-      x.firstIn ? timeStr(x.firstIn) : '', x.lastOut ? timeStr(x.lastOut) : '',
+      x.sched.start, x.firstIn ? timeStr(x.firstIn) : '', x.sched.end, x.lastOut ? timeStr(x.lastOut) : '', x.early ? 'Yes' : '',
       x.minutes ? (x.minutes / 60).toFixed(2) : '', x.manual ? 'Yes' : '']);
   });
   download(`attendance-summary-${r[0]}-to-${r[1]}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
