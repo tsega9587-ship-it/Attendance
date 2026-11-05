@@ -355,10 +355,9 @@
       <div class="sec"><h2 id="personFormTitle">Add an employee</h2></div>
       <p class="form-label">Employee</p>
       <label>Full name <input id="pName" required maxlength="80"></label>
-      <div class="row">
-        <label>Staff ID <input id="pStaff" maxlength="30"></label>
-        <label>Department <input id="pDept" maxlength="50"></label>
-      </div>
+      <label>Staff ID <input id="pStaff" maxlength="30"></label>
+      <label>Department <select id="pDept"></select></label>
+      <p class="muted hidden" id="pDeptHint" style="margin:-4px 0 12px">Add your departments under Reports, then choose one here.</p>
       <p class="form-label">Working hours</p>
       <div class="row">
         <label>Morning check-in <input type="time" id="pStart" required></label>
@@ -410,6 +409,14 @@
             <button class="btn" id="restoreBtn">Restore</button>
           </div>
           <input type="file" id="restoreFile" accept="application/json,.json">
+        </div>
+        <div class="card">
+          <div class="sec"><h2>Departments</h2></div>
+          <form id="deptForm" class="filters" autocomplete="off">
+            <input id="deptName" maxlength="50" style="margin:0;flex:1 1 150px;width:auto;min-width:0" placeholder="Department name" aria-label="Department name" required>
+            <button class="btn primary"><svg class="ic"><use href="#i-plus"/></svg>Add</button>
+          </form>
+          <div id="deptList"></div>
         </div>
         <form class="card" id="changePinForm" autocomplete="off">
           <div class="sec"><h2>Change admin PIN</h2></div>
@@ -476,7 +483,7 @@ function normalize(d) {
   return {
     people: Array.isArray(d.people) ? d.people : [],
     logs: Array.isArray(d.logs) ? d.logs : [],
-    settings: Object.assign({ org: 'Attendance', start: '08:30', lunchOut: '12:30', lunchIn: '13:30', end: '17:30', grace: 10, cooldown: 60 }, d.settings),
+    settings: Object.assign({ org: 'Attendance', start: '08:30', lunchOut: '12:30', lunchIn: '13:30', end: '17:30', grace: 10, cooldown: 60, departments: [] }, d.settings),
     lastBackup: d.lastBackup || null,
   };
 }
@@ -959,10 +966,29 @@ function renderPeople() {
   paintDraft();
 }
 
+/* The admin's list, plus any department an employee already has. */
+const departments = () => [...new Set([...db.settings.departments, ...db.people.map(p => p.dept)].filter(Boolean))]
+  .sort((a, b) => a.localeCompare(b));
+function fillDeptSelect(chosen) {
+  const list = departments(), sel = $('pDept');
+  sel.innerHTML = `<option value="">No department</option>${list.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('')}`;
+  sel.value = list.includes(chosen) ? chosen : '';
+  $('pDeptHint').classList.toggle('hidden', list.length > 0);
+}
+function renderDepts() {
+  const list = departments();
+  $('deptList').innerHTML = list.length ? list.map(d => {
+    const n = db.people.filter(p => p.dept === d).length;
+    return `<div class="rank"><div class="grow"><div class="name">${esc(d)}</div><div class="muted">${n} ${n === 1 ? 'employee' : 'employees'}</div></div>
+      <button class="icon-btn danger" type="button" data-deldept="${esc(d)}" aria-label="Remove ${esc(d)}">${icon('trash')}</button></div>`;
+  }).join('') : empty('No departments yet. Add your first one above.');
+}
+
 function fillHours(h) {
   $('pStart').value = h.start; $('pLunchOut').value = h.lunchOut; $('pLunchIn').value = h.lunchIn; $('pEnd').value = h.end;
 }
 function paintDraft() {
+  fillDeptSelect($('pDept').value);
   const linkMode = !canReadNfc();
   const open = formOpen || !!editingId || !db.people.length;
   $('personForm').classList.toggle('hidden', !open);
@@ -993,6 +1019,7 @@ function renderMore() {
   $('sOrg').value = s.org; $('sStart').value = s.start; $('sLunchOut').value = s.lunchOut; $('sLunchIn').value = s.lunchIn;
   $('sEnd').value = s.end; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown;
   if (!$('rTo').value) { $('rTo').value = dateKey(); const d = new Date(); d.setDate(1); $('rFrom').value = dateKey(d); }
+  renderDepts();
   $('lastBackup').textContent = db.lastBackup ? `Last backup: ${new Date(db.lastBackup).toLocaleString()}` : 'No backup saved yet.';
 }
 
@@ -1138,7 +1165,7 @@ $('peopleList').addEventListener('click', e => {
     const p = db.people.find(x => x.id === ed.dataset.edit); if (!p) return;
     editingId = p.id; draftSerial = p.cardSerial || ''; enrollWaiting = false; linkFor = null;
     $('newLink').classList.add('hidden');
-    $('pName').value = p.name; $('pStaff').value = p.staffId || ''; $('pDept').value = p.dept || '';
+    $('pName').value = p.name; $('pStaff').value = p.staffId || ''; fillDeptSelect(p.dept || '');
     fillHours(schedule(p));
     $('personFormTitle').textContent = `Edit ${p.name}`;
     paintDraft(); scrollTo(0, 0);
@@ -1152,12 +1179,28 @@ $('peopleList').addEventListener('click', e => {
     }
   }
 });
+$('deptForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('deptName').value.trim(); if (!name) return;
+  const taken = departments().find(d => d.toLowerCase() === name.toLowerCase());
+  if (taken) { alert(`${taken} is already on the list.`); return; }
+  db.settings.departments = [...db.settings.departments, name];
+  if (save()) { $('deptName').value = ''; renderDepts(); }
+});
+$('deptList').addEventListener('click', e => {
+  const b = e.target.closest('[data-deldept]'); if (!b) return;
+  const name = b.dataset.deldept, n = db.people.filter(p => p.dept === name).length;
+  if (n) { alert(`${n} ${n === 1 ? 'employee is' : 'employees are'} still in ${name}. Change their department first.`); return; }
+  if (!confirm(`Remove ${name} from the list?`)) return;
+  db.settings.departments = db.settings.departments.filter(d => d !== name);
+  if (save()) renderDepts();
+});
 $('settingsForm').addEventListener('submit', e => {
   e.preventDefault();
   if (!hoursInOrder($('sStart').value, $('sLunchOut').value, $('sLunchIn').value, $('sEnd').value)) {
     alert('Enter the four times in order: morning in, morning out, afternoon in, afternoon out.'); return;
   }
-  db.settings = { org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value, lunchOut: $('sLunchOut').value,
+  db.settings = { ...db.settings, org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value, lunchOut: $('sLunchOut').value,
     lunchIn: $('sLunchIn').value, end: $('sEnd').value,
     grace: Math.max(0, Number($('sGrace').value) || 0), cooldown: Math.max(0, Number($('sCooldown').value) || 0) };
   if (!editingId) fillHours(schedule(null));  // new people start from the new defaults
