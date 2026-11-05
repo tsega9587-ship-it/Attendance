@@ -112,6 +112,11 @@
 
   /* Lists */
   .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 14px; font-weight: 700; }
+  .avatar { overflow: hidden; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .photo-row .btn { margin: 0 6px 6px 0; }
+  #pPhotoPrev .avatar { width: 76px; height: 76px; font-size: 24px; }
   .feed-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
   .feed-item:first-child { border-top: 0; padding-top: 0; }
   .feed-item:last-child { padding-bottom: 0; }
@@ -185,6 +190,8 @@
   #overlay.show { display: grid; animation: fade .15s ease-out; }
   #overlay.in { background: #047857; } #overlay.out { background: #1e40af; }
   #overlay.late { background: #b45309; } #overlay.err { background: #b91c1c; } #overlay.info { background: #1e293b; }
+  #ovPhoto { display: block; width: min(60vw, 260px); height: min(60vw, 260px); object-fit: cover; margin: 0 auto 18px; border-radius: 24px;
+    border: 4px solid rgba(255,255,255,.9); background: rgba(255,255,255,.18); }
   .ov-ic { width: 86px; height: 86px; margin: 0 auto 18px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.18); animation: pop .25s ease-out; }
   .ov-ic .ic { width: 44px; height: 44px; stroke-width: 2.5; }
   #ovBig { font-size: 32px; font-weight: 700; overflow-wrap: anywhere; line-height: 1.2; }
@@ -354,6 +361,14 @@
     <form class="card hidden" id="personForm" autocomplete="off">
       <div class="sec"><h2 id="personFormTitle">Add an employee</h2></div>
       <p class="form-label">Employee</p>
+      <div class="photo-row">
+        <span id="pPhotoPrev"></span>
+        <div class="grow">
+          <button type="button" id="photoBtn" class="btn sm">Add photo</button>
+          <button type="button" id="photoDel" class="btn sm danger hidden">Remove</button>
+        </div>
+      </div>
+      <input type="file" id="photoFile" accept="image/*">
       <label>Full name <input id="pName" required maxlength="80"></label>
       <label>Staff ID <input id="pStaff" maxlength="30"></label>
       <label>Department <select id="pDept"></select></label>
@@ -453,7 +468,8 @@
 </div>
 
 <div id="overlay" aria-live="assertive"><div>
-  <div class="ov-ic"><svg class="ic"><use id="ovIcon" href="#i-check"/></svg></div>
+  <img id="ovPhoto" class="hidden" alt="">
+  <div class="ov-ic" id="ovIc"><svg class="ic"><use id="ovIcon" href="#i-check"/></svg></div>
   <div id="ovBig"></div><div id="ovSub"></div>
 </div></div>
 
@@ -469,7 +485,9 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const fmtSpan = m => { const t = Math.round(m); return `${Math.floor(t / 60)}h ${pad(t % 60)}m`; };
 const icon = name => `<svg class="ic"><use href="#i-${name}"/></svg>`;
 
-function avatar(name) {
+const isPhoto = v => /^data:image\/(jpeg|png);base64,/.test(v || '');
+function avatar(name, photo) {
+  if (isPhoto(photo)) return `<span class="avatar" aria-hidden="true"><img src="${esc(photo)}" alt=""></span>`;
   const parts = String(name).trim().split(/\s+/);
   const letters = (parts[0][0] || '?') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
   let hash = 0;
@@ -500,6 +518,8 @@ function save() {
   catch { notice('This device could not save the record. Storage may be full or blocked, so save a backup now.'); return false; }
 }
 function notice(msg) { const n = $('notice'); n.textContent = msg || ''; n.classList.toggle('hidden', !msg); }
+
+const faceOf = id => (db.people.find(p => p.id === id) || {}).photo;
 
 /* ---------- Attendance logic ---------- */
 function logsFor(date) { return db.logs.filter(l => dateKey(new Date(l.ts)) === date).sort((a, b) => a.ts - b.ts); }
@@ -545,7 +565,7 @@ function record(person, source) {
   const today = logsFor(dateKey()).filter(l => l.personId === person.id);
   const last = today[today.length - 1];
   if (source === 'card' && last && now - last.ts < db.settings.cooldown * 1000) {
-    show('info', person.name, `Already recorded at ${timeStr(last.ts)}`);
+    show('info', person.name, `Already recorded at ${timeStr(last.ts)}`, person.photo);
     return;
   }
   const hours = schedule(person);
@@ -558,7 +578,7 @@ function record(person, source) {
     sched: [hours.start, hours.lunchOut, hours.lunchIn, hours.end] });
   if (!save()) return;
   show(type === 'OUT' ? 'out' : late ? 'late' : 'in', person.name,
-    `${isAm ? 'Morning' : 'Afternoon'} ${type === 'IN' ? 'check-in' : 'check-out'} ${timeStr(now)}${late ? ' · Late' : ''}${early ? ' · Left early' : ''}`);
+    `${isAm ? 'Morning' : 'Afternoon'} ${type === 'IN' ? 'check-in' : 'check-out'} ${timeStr(now)}${late ? ' · Late' : ''}${early ? ' · Left early' : ''}`, person.photo);
   render();
 }
 
@@ -732,17 +752,20 @@ function beep(kind) {
     o.start(); o.stop(audio.currentTime + (kind === 'err' ? .35 : .15));
   } catch {}
 }
-function show(kind, big, sub) {
+function show(kind, big, sub, photo) {
   const o = $('overlay');
   o.className = `show ${kind}`; $('ovBig').textContent = big; $('ovSub').textContent = sub;
   $('ovIcon').setAttribute('href', `#i-${OV_ICONS[kind]}`);
+  const hasPhoto = isPhoto(photo), img = $('ovPhoto');
+  img.classList.toggle('hidden', !hasPhoto); $('ovIc').classList.toggle('hidden', hasPhoto);
+  if (hasPhoto) img.src = photo; else img.removeAttribute('src');
   beep(kind);
   if (navigator.vibrate) navigator.vibrate(kind === 'err' ? [120, 80, 120] : 120);
-  clearTimeout(ovTimer); ovTimer = setTimeout(() => { o.className = ''; }, kind === 'err' ? 6000 : canReadNfc() ? 1800 : 3000);
+  clearTimeout(ovTimer); ovTimer = setTimeout(() => { o.className = ''; }, kind === 'err' ? 6000 : hasPhoto ? 4000 : canReadNfc() ? 1800 : 3000);
 }
 
 /* ---------- Rendering ---------- */
-let view = 'scan', editingId = null, linkFor = null, formOpen = false;
+let view = 'scan', editingId = null, linkFor = null, formOpen = false, draftPhoto = '';
 const PROTECTED = ['dash', 'day', 'people', 'more'];
 const TITLES = { scan: 'Scan', admin: 'Admin', dash: 'Dashboard', day: 'Attendance', people: 'Cards', more: 'Reports' };
 function setView(v) {
@@ -808,7 +831,7 @@ function personRow(r, action = '') {
   const man = r.manual ? '<span class="tag manual">Manual</span>' : '';
   const foot = r.minutes || action
     ? `<div class="person-f"><span>${r.minutes ? `Worked ${fmtSpan(r.minutes)}` : ''}</span>${action}</div>` : '';
-  return `<article class="person"><div class="person-h">${avatar(r.name)}
+  return `<article class="person"><div class="person-h">${avatar(r.name, faceOf(r.id))}
     <div class="grow"><div class="name">${esc(r.name)}</div><div class="muted">${esc([r.dept, r.staffId].filter(Boolean).join(' · ')) || 'Employee'}</div></div>
     <div class="tags">${statusTags(r)}${man}</div></div>
     <div class="sessions">${sessionBox('Morning', r.am, r.sched.start, r.sched.lunchOut)}${sessionBox('Afternoon', r.pm, r.sched.lunchIn, r.sched.end)}</div>${foot}</article>`;
@@ -921,7 +944,7 @@ function renderRecent() {
     const part = l.session === 'pm' ? 'Afternoon' : l.session === 'am' ? 'Morning' : '';
     const what = `${part ? `${part} ` : ''}${l.type === 'IN' ? 'check-in' : 'check-out'}`;
     const tag = l.late ? '<span class="tag late">Late</span>' : l.early ? '<span class="tag late">Left early</span>' : '';
-    return `<div class="feed-item">${avatar(l.name)}<div class="grow"><div class="name">${esc(l.name)}</div>
+    return `<div class="feed-item">${avatar(l.name, faceOf(l.personId))}<div class="grow"><div class="name">${esc(l.name)}</div>
       <div class="muted">${what[0].toUpperCase()}${what.slice(1)}</div></div>${tag}<div class="times name">${timeStr(l.ts)}</div></div>`;
   }).join('') : empty('No taps yet.');
 }
@@ -957,7 +980,7 @@ function renderPeople() {
     const linkBtn = waiting ? `<button class="btn sm primary wide" style="margin-top:8px" data-link="${esc(p.id)}">Link tapped card</button>` : '';
     const state = used.has(p.id) ? '<span class="tag">Card active</span>' : '<span class="tag manual">Not used yet</span>';
     const copy = `<button class="btn sm" data-copy="${esc(p.id)}">${icon('copy')}Copy card link</button>`;
-    return `<article class="emp"><div class="emp-h">${avatar(p.name)}<div class="grow"><div class="name">${esc(p.name)}</div>
+    return `<article class="emp"><div class="emp-h">${avatar(p.name, p.photo)}<div class="grow"><div class="name">${esc(p.name)}</div>
       <div class="muted">${esc([p.dept, p.staffId].filter(Boolean).join(' · ')) || 'Employee'}</div></div>${state}</div>
       <div class="emp-hours"><span class="chip">Morning ${h.start}-${h.lunchOut}</span><span class="chip">Afternoon ${h.lunchIn}-${h.end}</span></div>
       ${linkBtn}<div class="emp-a">${copy}<button class="icon-btn" data-edit="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">${icon('edit')}</button>
@@ -987,8 +1010,30 @@ function renderDepts() {
 function fillHours(h) {
   $('pStart').value = h.start; $('pLunchOut').value = h.lunchOut; $('pLunchIn').value = h.lunchIn; $('pEnd').value = h.end;
 }
+function paintPhoto() {
+  $('pPhotoPrev').innerHTML = avatar($('pName').value.trim() || '?', draftPhoto);
+  $('photoBtn').textContent = draftPhoto ? 'Change photo' : 'Add photo';
+  $('photoDel').classList.toggle('hidden', !draftPhoto);
+}
+/* Shrinks a photo to a small square, because all records share the browser's limited storage. */
+const PHOTO_SIZE = 200;
+function shrinkPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), pic = new Image();
+    pic.onload = () => {
+      const side = Math.min(pic.naturalWidth, pic.naturalHeight);
+      const c = document.createElement('canvas'); c.width = c.height = PHOTO_SIZE;
+      c.getContext('2d').drawImage(pic, (pic.naturalWidth - side) / 2, (pic.naturalHeight - side) / 2, side, side, 0, 0, PHOTO_SIZE, PHOTO_SIZE);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', .72));
+    };
+    pic.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unreadable')); };
+    pic.src = url;
+  });
+}
 function paintDraft() {
   fillDeptSelect($('pDept').value);
+  paintPhoto();
   const linkMode = !canReadNfc();
   const open = formOpen || !!editingId || !db.people.length;
   $('personForm').classList.toggle('hidden', !open);
@@ -1009,7 +1054,7 @@ function paintDraft() {
 }
 
 function resetForm() {
-  editingId = null; draftSerial = ''; enrollWaiting = false; formOpen = false;
+  editingId = null; draftSerial = ''; draftPhoto = ''; enrollWaiting = false; formOpen = false;
   $('personForm').reset();
   paintDraft();
 }
@@ -1062,6 +1107,14 @@ $('enrollBtn').addEventListener('click', async () => {
   if (enrollWaiting) { enrollWaiting = false; paintDraft(); return; }
   if (await startNfc()) { enrollWaiting = true; paintDraft(); }
 });
+$('photoBtn').addEventListener('click', () => $('photoFile').click());
+$('photoDel').addEventListener('click', () => { draftPhoto = ''; paintPhoto(); });
+$('pName').addEventListener('input', paintPhoto);
+$('photoFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { draftPhoto = await shrinkPhoto(f); paintPhoto(); }
+  catch { alert('That photo could not be read. Try a different one.'); }
+});
 $('addBtn').addEventListener('click', () => { formOpen = true; linkFor = null; renderPeople(); $('pName').focus(); });
 $('peopleSearch').addEventListener('input', renderPeople);
 $('dashSearch').addEventListener('input', renderDash);
@@ -1086,7 +1139,7 @@ $('personForm').addEventListener('submit', e => {
   const workStart = $('pStart').value, lunchOut = $('pLunchOut').value, lunchIn = $('pLunchIn').value, workEnd = $('pEnd').value;
   if (!hoursInOrder(workStart, lunchOut, lunchIn, workEnd)) { alert('Enter the four times in order: morning in, morning out, afternoon in, afternoon out.'); return; }
   const existing = editingId && db.people.find(p => p.id === editingId);
-  const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial,
+  const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial, photo: draftPhoto,
     workStart, lunchOut, lunchIn, workEnd, cardCode: (existing && existing.cardCode) || newCode() };
   const newId = existing ? null : uid();
   if (existing) Object.assign(existing, fields);
@@ -1163,7 +1216,7 @@ $('peopleList').addEventListener('click', e => {
   }
   if (ed) {
     const p = db.people.find(x => x.id === ed.dataset.edit); if (!p) return;
-    editingId = p.id; draftSerial = p.cardSerial || ''; enrollWaiting = false; linkFor = null;
+    editingId = p.id; draftSerial = p.cardSerial || ''; draftPhoto = p.photo || ''; enrollWaiting = false; linkFor = null;
     $('newLink').classList.add('hidden');
     $('pName').value = p.name; $('pStaff').value = p.staffId || ''; fillDeptSelect(p.dept || '');
     fillHours(schedule(p));
