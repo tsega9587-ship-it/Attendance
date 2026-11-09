@@ -117,6 +117,22 @@
   .photo-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
   .photo-row .btn { margin: 0 6px 6px 0; }
   #pPhotoPrev .avatar { width: 76px; height: 76px; font-size: 24px; }
+  .check { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--ink); }
+  .check input { width: 22px; height: 22px; min-height: 0; margin: 0; flex: none; accent-color: var(--brand); }
+  .check.sm { font-size: 13px; margin: 0; color: var(--ink-2); }
+  .check.sm input { width: 18px; height: 18px; }
+  .fc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .fc .grow { min-width: 140px; }
+  .fc > .btn, .fc > .tag { margin-left: auto; }
+  .fc:first-child { border-top: 0; padding-top: 0; }
+  .fc-pics { display: flex; gap: 4px; flex: none; }
+  .fc-pics .avatar, .fc-pics .snap { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; background: var(--surface-2); }
+  .fc-pics .snap { display: grid; place-items: center; font-size: 10px; color: var(--muted); text-align: center; border: 1px solid var(--line); }
+  #faceBox { position: fixed; inset: 0; z-index: 19; display: grid; place-items: center; padding: 24px; text-align: center; color: #fff; background: #0b1120; }
+  #faceName { font-size: 26px; font-weight: 700; margin-bottom: 12px; overflow-wrap: anywhere; }
+  .face-cam { width: min(78vw, 340px); aspect-ratio: 3 / 4; margin: 0 auto; border-radius: 26px; overflow: hidden; border: 4px solid #5eead4; background: #000; }
+  .face-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  #faceMsg { font-size: 18px; margin-top: 14px; opacity: .9; }
   .feed-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
   .feed-item:first-child { border-top: 0; padding-top: 0; }
   .feed-item:last-child { padding-bottom: 0; }
@@ -321,6 +337,10 @@
         </div>
       </div>
       <div>
+        <div class="card hidden" id="faceCard">
+          <div class="sec"><h2 id="faceTitle">Face checks</h2><label class="check sm"><input type="checkbox" id="faceAll">Show all</label></div>
+          <div id="faceList"></div>
+        </div>
         <div class="card">
           <div class="sec"><h2>Present, last 7 days</h2></div>
           <div class="bars" id="dashChart"></div>
@@ -366,6 +386,7 @@
         <div class="grow">
           <button type="button" id="photoBtn" class="btn sm">Add photo</button>
           <button type="button" id="photoDel" class="btn sm danger hidden">Remove</button>
+          <p class="muted" id="pFaceState"></p>
         </div>
       </div>
       <input type="file" id="photoFile" accept="image/*">
@@ -460,11 +481,22 @@
         <p class="form-label">Rules</p>
         <label>Grace before late (minutes) <input type="number" id="sGrace" min="0" max="240" required></label>
         <label>Ignore repeat taps for (seconds) <input type="number" id="sCooldown" min="0" max="3600" required></label>
+        <p class="form-label">Face check</p>
+        <label class="check"><input type="checkbox" id="sFace">Check faces after each card tap</label>
+        <p class="muted" id="faceInfo" style="margin-bottom:12px"></p>
         <button class="btn primary wide">Save settings</button>
       </form>
     </div>
   </section>
 </main>
+</div>
+
+<div id="faceBox" class="hidden" role="dialog" aria-label="Face check">
+  <div>
+    <p id="faceName"></p>
+    <div class="face-cam"><video id="faceVideo" playsinline muted autoplay></video></div>
+    <p id="faceMsg"></p>
+  </div>
 </div>
 
 <div id="overlay" aria-live="assertive"><div>
@@ -521,6 +553,121 @@ function notice(msg) { const n = $('notice'); n.textContent = msg || ''; n.class
 
 const faceOf = id => (db.people.find(p => p.id === id) || {}).photo;
 
+/* ---------- Face check ----------
+   Runs on the phone itself; no picture leaves the device. It flags a tap for review and never
+   blocks one, because lighting or a bad photo can fool it, and so can a printed photo. */
+const FACE_LIMIT = 0.6, FACE_SECONDS = 7, SNAP_DAYS = 30;
+const FACE_FLAG = { nomatch: 'Face did not match', noface: 'No face seen', nocam: 'Camera not available',
+  noref: 'No usable employee photo', error: 'Face check failed' };
+const faceFlagged = l => !!FACE_FLAG[l.face] && !l.faceOk;
+let faceLib = null;
+function loadFace() {
+  if (!faceLib) {
+    faceLib = new Promise((ok, fail) => {
+      if (window.faceapi) return ok();
+      const s = document.createElement('script');
+      s.src = 'face/face-api.js'; s.onload = ok; s.onerror = () => fail(new Error('face library'));
+      document.head.append(s);
+    }).then(() => Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri('face'),
+      faceapi.nets.faceLandmark68Net.loadFromUri('face'),
+      faceapi.nets.faceRecognitionNet.loadFromUri('face'),
+    ])).catch(e => { faceLib = null; throw e; });
+  }
+  return faceLib;
+}
+const faceOptions = size => new faceapi.TinyFaceDetectorOptions({ inputSize: size, scoreThreshold: 0.5 });
+const findFace = (el, size) => faceapi.detectSingleFace(el, faceOptions(size)).withFaceLandmarks().withFaceDescriptor();
+/* The small detector misses faces that fill the whole picture, so close-up photos get a border added. */
+function withBorder(img) {
+  const w = img.naturalWidth, h = img.naturalHeight, side = Math.round(Math.max(w, h) * 1.6);
+  const c = document.createElement('canvas'); c.width = c.height = side;
+  const x = c.getContext('2d'); x.fillStyle = '#808080'; x.fillRect(0, 0, side, side);
+  x.drawImage(img, (side - w) / 2, (side - h) / 2);
+  return c;
+}
+const loadImg = src => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
+/* A face becomes 128 numbers. Two photos of one person give numbers that are close together. */
+async function describeFace(img) {
+  await loadFace();
+  let r = null;
+  for (const [el, size] of [[img, 416], [img, 320], [withBorder(img), 320], [withBorder(img), 224], [img, 224], [withBorder(img), 160]]) {
+    r = await findFace(el, size);
+    if (r) break;
+  }
+  return r ? Array.from(r.descriptor, v => Math.round(v * 1e4) / 1e4) : [];
+}
+/* An empty list means the photo was checked and has no usable face. */
+async function ensureFaceDesc(p) {
+  if (Array.isArray(p.faceDesc)) return p.faceDesc;
+  if (!isPhoto(p.photo)) return null;
+  const d = await describeFace(await loadImg(p.photo));
+  sync();
+  const fresh = db.people.find(x => x.id === p.id);
+  if (fresh && fresh.photo === p.photo) { fresh.faceDesc = d; save(); }
+  return d;
+}
+function grab(video) {
+  if (!video.videoWidth) return '';
+  const c = document.createElement('canvas'); c.width = 240; c.height = Math.round(240 * video.videoHeight / video.videoWidth);
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', .7);
+}
+async function verifyFace(person) {
+  const box = $('faceBox'), video = $('faceVideo'), msg = t => { $('faceMsg').textContent = t; };
+  $('faceName').textContent = person.name; msg('Getting the camera ready');
+  box.classList.remove('hidden');
+  let stream = null;
+  try {
+    let ref;
+    try { ref = await ensureFaceDesc(person); } catch { return { face: 'error' }; }
+    if (!ref || !ref.length) return { face: 'noref' };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+      video.srcObject = stream; await video.play();
+    } catch { return { face: 'nocam' }; }
+    msg('Look at the camera');
+    const until = Date.now() + FACE_SECONDS * 1000;
+    let best = null, last = '', round = 0;
+    while (Date.now() < until) {
+      const r = video.videoWidth ? await findFace(video, [320, 224, 416][round++ % 3]) : null;
+      if (r) {
+        const dist = faceapi.euclideanDistance(ref, r.descriptor);
+        if (!best || dist < best.dist) best = { dist, snap: grab(video) };
+        if (dist < FACE_LIMIT) break;
+        msg('Hold still');
+      } else msg('Move your face into the frame');
+      last = grab(video);
+      await new Promise(ok => setTimeout(ok, 120));
+    }
+    if (!best) return { face: 'noface', snap: last };
+    return { face: best.dist < FACE_LIMIT ? 'match' : 'nomatch', dist: Math.round(best.dist * 100) / 100, snap: best.snap };
+  } catch { return { face: 'error' }; }
+  finally {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    video.srcObject = null; box.classList.add('hidden');
+  }
+}
+
+/* Tap pictures are kept in the browser's larger picture storage, apart from the records, for 30 days. */
+function snapStore(mode, fn) {
+  return new Promise((ok, fail) => {
+    const req = indexedDB.open('nfc-attendance-faces', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('snaps', { keyPath: 'id' });
+    req.onerror = () => fail(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('snaps', mode), out = fn(tx.objectStore('snaps'));
+      tx.oncomplete = () => ok(out && out.result); tx.onerror = () => fail(tx.error);
+    };
+  });
+}
+const saveSnap = (id, data) => snapStore('readwrite', s => s.put({ id, ts: Date.now(), data })).catch(() => {});
+const getSnap = id => snapStore('readonly', s => s.get(id)).then(r => r && r.data).catch(() => null);
+function pruneSnaps() {
+  const cutoff = Date.now() - SNAP_DAYS * 24 * 60 * 60 * 1000;
+  snapStore('readwrite', s => { s.openCursor().onsuccess = e => { const c = e.target.result; if (!c) return; if (c.value.ts < cutoff) c.delete(); c.continue(); }; }).catch(() => {});
+}
+
 /* ---------- Attendance logic ---------- */
 function logsFor(date) { return db.logs.filter(l => dateKey(new Date(l.ts)) === date).sort((a, b) => a.ts - b.ts); }
 
@@ -559,26 +706,39 @@ function nextTap(now, today, hours) {
   return { type: 'IN', session };
 }
 
-function record(person, source) {
+let tapping = false;  // one person at a time while the camera is open
+async function record(person, source) {
+  if (tapping) return;
   sync();
   const now = Date.now();
-  const today = logsFor(dateKey()).filter(l => l.personId === person.id);
-  const last = today[today.length - 1];
-  if (source === 'card' && last && now - last.ts < db.settings.cooldown * 1000) {
-    show('info', person.name, `Already recorded at ${timeStr(last.ts)}`, person.photo);
+  const before = logsFor(dateKey()).filter(l => l.personId === person.id);
+  const prev = before[before.length - 1];
+  if (source === 'card' && prev && now - prev.ts < db.settings.cooldown * 1000) {
+    show('info', person.name, `Already recorded at ${timeStr(prev.ts)}`, person.photo);
     return;
   }
+  let face = null;
+  if (source === 'card' && db.settings.faceCheck) {
+    tapping = true;
+    try { face = await verifyFace(person); } finally { tapping = false; }
+    sync();  // the face check takes a few seconds, so pick up anything saved meanwhile
+  }
+  const today = logsFor(dateKey()).filter(l => l.personId === person.id);
   const hours = schedule(person);
   const { type, session } = nextTap(now, today, hours);
   const isAm = session === 'am';
   const firstIn = !today.some(l => l.type === 'IN' && logSession(l, hours) === session);
   const late = type === 'IN' && firstIn && isLate(now, isAm ? hours.start : hours.lunchIn);
   const early = type === 'OUT' && isEarly(now, isAm ? hours.lunchOut : hours.end);
-  db.logs.push({ id: uid(), personId: person.id, name: person.name, staffId: person.staffId || '', dept: person.dept || '', type, ts: now, source, session, late, early,
-    sched: [hours.start, hours.lunchOut, hours.lunchIn, hours.end] });
+  const log = { id: uid(), personId: person.id, name: person.name, staffId: person.staffId || '', dept: person.dept || '', type, ts: now, source, session, late, early,
+    sched: [hours.start, hours.lunchOut, hours.lunchIn, hours.end] };
+  if (face) { log.face = face.face; if (face.dist != null) log.faceDist = face.dist; }
+  db.logs.push(log);
   if (!save()) return;
-  show(type === 'OUT' ? 'out' : late ? 'late' : 'in', person.name,
-    `${isAm ? 'Morning' : 'Afternoon'} ${type === 'IN' ? 'check-in' : 'check-out'} ${timeStr(now)}${late ? ' · Late' : ''}${early ? ' · Left early' : ''}`, person.photo);
+  if (face && face.snap) saveSnap(log.id, face.snap);
+  const flag = face && FACE_FLAG[face.face];
+  show(flag ? 'late' : type === 'OUT' ? 'out' : late ? 'late' : 'in', person.name,
+    `${isAm ? 'Morning' : 'Afternoon'} ${type === 'IN' ? 'check-in' : 'check-out'} ${timeStr(now)}${late ? ' · Late' : ''}${early ? ' · Left early' : ''}${flag ? ` · ${flag}` : face ? ' · Face matched' : ''}`, person.photo);
   render();
 }
 
@@ -815,6 +975,7 @@ function renderPin() {
 function statusTags(r) {
   if (!r.logs.length) return r.missed ? '<span class="tag absent">Absent</span>' : '<span class="tag wait">Not in yet</span>';
   const tags = [];
+  if (r.logs.some(faceFlagged)) tags.push('<span class="tag absent">Check face</span>');
   if (r.late) tags.push('<span class="tag late">Late</span>');
   if (r.missed) tags.push('<span class="tag absent">Half day</span>');
   if (r.early) tags.push('<span class="tag late">Left early</span>');
@@ -854,6 +1015,7 @@ function renderDash() {
   if (!input.value) input.value = dateKey();
   input.max = dateKey();
   $('dashNext').disabled = input.value >= dateKey();
+  renderFaceChecks(input.value);
   const all = dayRows(input.value);
 
   const depts = [...new Set(db.people.map(p => p.dept).concat(all.map(r => r.dept)).filter(Boolean))].sort();
@@ -923,6 +1085,27 @@ function renderDash() {
     <span class="tag manual">Not used yet</span></div>`).join('')
     : empty(db.people.length ? 'Every card has been used at least once.' : 'No cards created yet.');
 }
+function renderFaceChecks(date) {
+  const logs = logsFor(date).filter(l => l.face);
+  const shown = $('faceAll').checked ? logs.slice().reverse() : logs.filter(faceFlagged).reverse();
+  const open = logs.filter(faceFlagged).length;
+  $('faceCard').classList.toggle('hidden', !db.settings.faceCheck && !logs.length);
+  $('faceTitle').textContent = open ? `Face checks (${open} to review)` : 'Face checks';
+  $('faceList').innerHTML = shown.length ? shown.map(l => {
+    const what = `${l.session === 'pm' ? 'Afternoon' : 'Morning'} ${l.type === 'IN' ? 'check-in' : 'check-out'} ${timeStr(l.ts)}`;
+    const result = FACE_FLAG[l.face] || 'Face matched';
+    const action = faceFlagged(l) ? `<button class="btn sm" data-faceok="${esc(l.id)}">Looks right</button>`
+      : l.faceOk ? '<span class="tag">Reviewed</span>' : '<span class="tag">Matched</span>';
+    return `<div class="fc"><div class="fc-pics">${avatar(l.name, faceOf(l.personId))}<span class="snap" data-snap="${esc(l.id)}">No picture</span></div>
+      <div class="grow"><div class="name">${esc(l.name)}</div><div class="muted">${esc(what)} · ${esc(result)}</div></div>${action}</div>`;
+  }).join('') : empty(logs.length ? 'Every face matched on this day.' : 'No face checks on this day.');
+  // Pictures load from the phone's picture storage after the list is drawn.
+  $('faceList').querySelectorAll('[data-snap]').forEach(async el => {
+    const data = await getSnap(el.dataset.snap);
+    if (data && isPhoto(data)) el.outerHTML = `<img class="snap" src="${esc(data)}" alt="Picture taken at the tap">`;
+  });
+}
+
 const usedCards = () => new Set(db.logs.filter(l => l.source === 'card').map(l => l.personId));
 
 function render() {
@@ -1010,8 +1193,13 @@ function renderDepts() {
 function fillHours(h) {
   $('pStart').value = h.start; $('pLunchOut').value = h.lunchOut; $('pLunchIn').value = h.lunchIn; $('pEnd').value = h.end;
 }
+let draftFace, draftFaceBusy = false;
 function paintPhoto() {
   $('pPhotoPrev').innerHTML = avatar($('pName').value.trim() || '?', draftPhoto);
+  const st = $('pFaceState');
+  st.textContent = !db.settings.faceCheck || !draftPhoto ? '' : draftFaceBusy ? 'Checking the face in this photo...'
+    : !Array.isArray(draftFace) ? '' : draftFace.length ? 'Face registered for face check.' : 'No face found. Use a clear, front-facing photo.';
+  st.style.color = Array.isArray(draftFace) && !draftFace.length && db.settings.faceCheck ? 'var(--bad)' : '';
   $('photoBtn').textContent = draftPhoto ? 'Change photo' : 'Add photo';
   $('photoDel').classList.toggle('hidden', !draftPhoto);
 }
@@ -1054,7 +1242,7 @@ function paintDraft() {
 }
 
 function resetForm() {
-  editingId = null; draftSerial = ''; draftPhoto = ''; enrollWaiting = false; formOpen = false;
+  editingId = null; draftSerial = ''; draftPhoto = ''; draftFace = undefined; enrollWaiting = false; formOpen = false;
   $('personForm').reset();
   paintDraft();
 }
@@ -1062,7 +1250,8 @@ function resetForm() {
 function renderMore() {
   const s = db.settings;
   $('sOrg').value = s.org; $('sStart').value = s.start; $('sLunchOut').value = s.lunchOut; $('sLunchIn').value = s.lunchIn;
-  $('sEnd').value = s.end; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown;
+  $('sEnd').value = s.end; $('sGrace').value = s.grace; $('sCooldown').value = s.cooldown; $('sFace').checked = !!s.faceCheck;
+  renderFaceInfo();
   if (!$('rTo').value) { $('rTo').value = dateKey(); const d = new Date(); d.setDate(1); $('rFrom').value = dateKey(d); }
   renderDepts();
   $('lastBackup').textContent = db.lastBackup ? `Last backup: ${new Date(db.lastBackup).toLocaleString()}` : 'No backup saved yet.';
@@ -1108,12 +1297,17 @@ $('enrollBtn').addEventListener('click', async () => {
   if (await startNfc()) { enrollWaiting = true; paintDraft(); }
 });
 $('photoBtn').addEventListener('click', () => $('photoFile').click());
-$('photoDel').addEventListener('click', () => { draftPhoto = ''; paintPhoto(); });
+$('photoDel').addEventListener('click', () => { draftPhoto = ''; draftFace = undefined; paintPhoto(); });
 $('pName').addEventListener('input', paintPhoto);
 $('photoFile').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try { draftPhoto = await shrinkPhoto(f); paintPhoto(); }
-  catch { alert('That photo could not be read. Try a different one.'); }
+  try { draftPhoto = await shrinkPhoto(f); draftFace = undefined; paintPhoto(); }
+  catch { alert('That photo could not be read. Try a different one.'); return; }
+  if (!db.settings.faceCheck) return;  // worked out later, if face check is turned on
+  const url = URL.createObjectURL(f), photo = draftPhoto;
+  draftFaceBusy = true; paintPhoto();
+  try { const d = await describeFace(await loadImg(url)); if (draftPhoto === photo) draftFace = d; }
+  catch {} finally { URL.revokeObjectURL(url); draftFaceBusy = false; paintPhoto(); }
 });
 $('addBtn').addEventListener('click', () => { formOpen = true; linkFor = null; renderPeople(); $('pName').focus(); });
 $('peopleSearch').addEventListener('input', renderPeople);
@@ -1139,7 +1333,7 @@ $('personForm').addEventListener('submit', e => {
   const workStart = $('pStart').value, lunchOut = $('pLunchOut').value, lunchIn = $('pLunchIn').value, workEnd = $('pEnd').value;
   if (!hoursInOrder(workStart, lunchOut, lunchIn, workEnd)) { alert('Enter the four times in order: morning in, morning out, afternoon in, afternoon out.'); return; }
   const existing = editingId && db.people.find(p => p.id === editingId);
-  const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial, photo: draftPhoto,
+  const fields = { name, staffId: $('pStaff').value.trim(), dept: $('pDept').value.trim(), cardSerial: draftSerial, photo: draftPhoto, faceDesc: draftPhoto ? draftFace : undefined,
     workStart, lunchOut, lunchIn, workEnd, cardCode: (existing && existing.cardCode) || newCode() };
   const newId = existing ? null : uid();
   if (existing) Object.assign(existing, fields);
@@ -1153,6 +1347,13 @@ $('nlCopy').addEventListener('click', () => {
 $('lockBtn').addEventListener('click', lock);
 $('unknownDismiss').addEventListener('click', () => { clearUnknown(); renderPeople(); });
 $('dashDate').addEventListener('change', renderDash);
+$('faceAll').addEventListener('change', () => renderFaceChecks($('dashDate').value || dateKey()));
+$('faceList').addEventListener('click', e => {
+  const b = e.target.closest('[data-faceok]'); if (!b) return;
+  sync();
+  const l = db.logs.find(x => x.id === b.dataset.faceok);
+  if (l && confirm(`Mark ${l.name}'s tap as checked and correct?`)) { l.faceOk = true; if (save()) renderDash(); }
+});
 $('dashStats').addEventListener('click', e => {
   const b = e.target.closest('[data-filter]'); if (!b) return;
   dashFilter = dashFilter === b.dataset.filter ? 'all' : b.dataset.filter;
@@ -1216,7 +1417,7 @@ $('peopleList').addEventListener('click', e => {
   }
   if (ed) {
     const p = db.people.find(x => x.id === ed.dataset.edit); if (!p) return;
-    editingId = p.id; draftSerial = p.cardSerial || ''; draftPhoto = p.photo || ''; enrollWaiting = false; linkFor = null;
+    editingId = p.id; draftSerial = p.cardSerial || ''; draftPhoto = p.photo || ''; draftFace = p.faceDesc; enrollWaiting = false; linkFor = null;
     $('newLink').classList.add('hidden');
     $('pName').value = p.name; $('pStaff').value = p.staffId || ''; fillDeptSelect(p.dept || '');
     fillHours(schedule(p));
@@ -1255,10 +1456,33 @@ $('settingsForm').addEventListener('submit', e => {
   }
   db.settings = { ...db.settings, org: $('sOrg').value.trim() || 'Attendance', start: $('sStart').value, lunchOut: $('sLunchOut').value,
     lunchIn: $('sLunchIn').value, end: $('sEnd').value,
-    grace: Math.max(0, Number($('sGrace').value) || 0), cooldown: Math.max(0, Number($('sCooldown').value) || 0) };
+    grace: Math.max(0, Number($('sGrace').value) || 0), cooldown: Math.max(0, Number($('sCooldown').value) || 0),
+    faceCheck: $('sFace').checked };
   if (!editingId) fillHours(schedule(null));  // new people start from the new defaults
-  if (save()) { show('info', 'Saved', ''); render(); }
+  if (save()) { show('info', 'Saved', ''); render(); if (db.settings.faceCheck) prepareFaces(); }
 });
+function renderFaceInfo() {
+  if (!db.settings.faceCheck) {
+    $('faceInfo').textContent = 'When on, the front camera checks each person against their employee photo. Taps are always recorded, and anything that does not match is flagged on the Dashboard.';
+    return;
+  }
+  const ready = db.people.filter(p => Array.isArray(p.faceDesc) && p.faceDesc.length);
+  const missing = db.people.filter(p => !isPhoto(p.photo) || (Array.isArray(p.faceDesc) && !p.faceDesc.length));
+  $('faceInfo').textContent = `Ready for ${ready.length} of ${db.people.length} employees.`
+    + (missing.length ? ` Needs a clear front-facing photo: ${missing.map(p => p.name).join(', ')}.` : '');
+}
+/* Reads every employee photo once, so the first taps are quick. */
+async function prepareFaces() {
+  $('faceInfo').textContent = 'Getting face check ready. The first time downloads about 8 MB.';
+  try {
+    await loadFace();
+    for (const p of db.people.slice()) await ensureFaceDesc(p);
+  } catch {
+    $('faceInfo').textContent = 'Face check could not start. Check the internet connection, then press Save settings again.';
+    return;
+  }
+  renderFaceInfo();
+}
 $('csvSummary').addEventListener('click', () => {
   const r = range(); if (!r) return;
   const rows = [['Date', 'Name', 'Staff ID', 'Department',
@@ -1277,10 +1501,11 @@ $('csvSummary').addEventListener('click', () => {
 });
 $('csvRaw').addEventListener('click', () => {
   const r = range(); if (!r) return;
-  const rows = [['Date', 'Time', 'Name', 'Staff ID', 'Department', 'Type', 'Source']];
+  const rows = [['Date', 'Time', 'Name', 'Staff ID', 'Department', 'Type', 'Source', 'Face check']];
+  const faceText = l => !l.face ? '' : l.faceOk ? 'Reviewed, correct' : FACE_FLAG[l.face] || 'Matched';
   for (const l of [...db.logs].sort((a, b) => a.ts - b.ts)) {
     const d = dateKey(new Date(l.ts));
-    if (d >= r[0] && d <= r[1]) rows.push([d, timeStr(l.ts), l.name, l.staffId, l.dept, l.type, l.source]);
+    if (d >= r[0] && d <= r[1]) rows.push([d, timeStr(l.ts), l.name, l.staffId, l.dept, l.type, l.source, faceText(l)]);
   }
   download(`attendance-taps-${r[0]}-to-${r[1]}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
 });
@@ -1318,6 +1543,8 @@ window.addEventListener('storage', () => { sync(); render(); });
 window.addEventListener('pageshow', () => { sync(); render(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { sync(); render(); } });
 handleCardLink();
+pruneSnaps();
+if (db.settings.faceCheck) loadFace().catch(() => {});  // ready before the next tap
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
 if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
